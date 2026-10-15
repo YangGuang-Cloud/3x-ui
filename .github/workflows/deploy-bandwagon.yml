@@ -1,0 +1,113 @@
+name: Deploy BandwagonHost
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'frontend/**'
+      - '.nvmrc'
+      - 'tools/deploy/**'
+      - 'tools/legacy-xui/**'
+      - '.github/workflows/deploy-bandwagon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bandwagon-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+        env:
+          HUSKY: '0'
+      - name: Check and build frontend
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run build
+          npm test -- --project=unit --project=components
+        env:
+          STORYBOOK_DISABLE_TELEMETRY: '1'
+      - name: Verify storage and migration
+        run: |
+          go test ./internal/config ./internal/database
+          go test ./internal/web/service -run 'Test.*Migrat' -count=1
+          python3 -m unittest discover -s tools/legacy-xui -p 'test_*.py'
+          python3 -m unittest discover -s tools/deploy -p 'test_*.py'
+      - name: Build static Linux amd64 release
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends musl-tools
+          mkdir -p release
+          export CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=musl-gcc
+          stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          go build -trimpath -buildvcs=true -ldflags "-s -w -linkmode external -extldflags '-static' -X github.com/mhsanaei/3x-ui/v3/internal/config.buildCommit=${GITHUB_SHA:0:8} -X github.com/mhsanaei/3x-ui/v3/internal/config.buildDate=$stamp" -o release/x-ui .
+          if readelf -l release/x-ui | grep -q INTERP; then
+            echo 'Expected a static executable for Ubuntu 20.04 compatibility'
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path('release/manifest.json').write_text(json.dumps({
+              'commit': os.environ['GITHUB_SHA'],
+              'baseVersion': Path('internal/config/version').read_text().strip(),
+              'coreVersion': '26.10.10'
+          }))
+          PY
+          tar -czf release.tar.gz -C release x-ui manifest.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: bandwagon-${{ github.sha }}
+          path: release.tar.gz
+          retention-days: 7
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: bandwagon-${{ github.sha }}
+      - name: Upload and activate
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]] || { echo 'Configure production DEPLOY_HOST'; exit 1; }
+          [[ -n "$DEPLOY_KEY" && -n "$KNOWN_HOSTS" ]] || { echo 'Configure deployment secrets'; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s' "$DEPLOY_KEY" | base64 --decode > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          opts=(-i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+          scp "${opts[@]}" release.tar.gz "xui-deploy@$DEPLOY_HOST:/var/lib/xui-deploy/incoming/$GITHUB_SHA.tar.gz"
+          ssh "${opts[@]}" "xui-deploy@$DEPLOY_HOST" "sudo -n /usr/local/sbin/3x-ui-deploy $GITHUB_SHA"
