@@ -84,6 +84,16 @@ def activate(candidate, runtime, database, backup, service, check):
         raise
 
 
+def child_pids(pid, proc=Path('/proc')):
+    children = set()
+    for task in (proc/pid/'task').iterdir():
+        try:
+            children.update((task/'children').read_text().split())
+        except FileNotFoundError:
+            continue
+    return children
+
+
 def healthy(candidate, expected_version):
     try:
         pid = subprocess.check_output(['systemctl', 'show', '3x-ui', '-p', 'MainPID', '--value'], timeout=3).decode().strip()
@@ -92,7 +102,7 @@ def healthy(candidate, expected_version):
         version = subprocess.check_output([str(candidate/'x-ui'), '-v'], timeout=5).decode().strip()
         if version != expected_version:
             return False
-        children = Path('/proc/'+pid+'/task/'+pid+'/children').read_text().split()
+        children = child_pids(pid)
         core = Path('/opt/3x-ui/shared/bin/xray-linux-amd64')
         if not any(Path('/proc/'+child+'/exe').resolve() == core for child in children):
             return False

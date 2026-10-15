@@ -16,6 +16,15 @@ def module():
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_children_include_processes_started_by_worker_threads(self):
+        with tempfile.TemporaryDirectory() as folder:
+            proc = Path(folder)
+            task = proc/'100/task'
+            for tid, children in [('100', ''), ('101', '200 201'), ('102', '201')]:
+                (task/tid).mkdir(parents=True)
+                (task/tid/'children').write_text(children)
+            self.assertEqual(module().child_pids('100', proc), {'200', '201'})
+
     def test_failed_health_restores_sqlite_schema_data_and_runtime(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()
