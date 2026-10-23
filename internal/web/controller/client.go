@@ -739,6 +739,7 @@ func (a *ClientController) getBandwidth(c *gin.Context) {
 	value, err := a.clientService.GetBandwidth(c.Param("email"))
 	jsonObj(c, gin.H{"uploadMbps": value.UploadMbps, "downloadMbps": value.DownloadMbps, "supported": xray.SupportsClientBandwidth()}, err)
 }
+
 func (a *ClientController) setBandwidth(c *gin.Context) {
 	var form struct {
 		UploadMbps   *float64 `json:"uploadMbps"`

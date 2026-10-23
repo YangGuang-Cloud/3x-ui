@@ -25,6 +25,7 @@ func validateClientBandwidth(v model.ClientBandwidth) error {
 	}
 	return nil
 }
+
 func (s *ClientService) GetBandwidth(email string) (model.ClientBandwidth, error) {
 	client, err := s.GetRecordByEmail(nil, email)
 	if err != nil {
@@ -37,6 +38,7 @@ func (s *ClientService) GetBandwidth(email string) (model.ClientBandwidth, error
 	}
 	return value, err
 }
+
 func (s *ClientService) checkBandwidthAttachments(id int) error {
 	var inbounds []model.Inbound
 	err := database.GetDB().Model(&model.Inbound{}).Joins("JOIN client_inbounds ON client_inbounds.inbound_id = inbounds.id").Where("client_inbounds.client_id = ?", id).Find(&inbounds).Error
@@ -53,6 +55,7 @@ func (s *ClientService) checkBandwidthAttachments(id int) error {
 	}
 	return nil
 }
+
 func (s *ClientService) SetBandwidth(email string, value model.ClientBandwidth, apply func() error) error {
 	if err := validateClientBandwidth(value); err != nil {
 		return err
@@ -84,15 +87,16 @@ func (s *ClientService) SetBandwidth(email string, value model.ClientBandwidth, 
 	}
 	if err := apply(); err != nil {
 		if rollback := save(old); rollback != nil {
-			return fmt.Errorf("bandwidth apply failed: %v; database rollback failed: %w", err, rollback)
+			return fmt.Errorf("bandwidth apply failed: %w; database rollback failed: %w", err, rollback)
 		}
 		if rollback := apply(); rollback != nil {
-			return fmt.Errorf("bandwidth apply failed: %v; core rollback failed: %w", err, rollback)
+			return fmt.Errorf("bandwidth apply failed: %w; core rollback failed: %w", err, rollback)
 		}
 		return err
 	}
 	return nil
 }
+
 func generatedClientBandwidth() (json_util.RawMessage, error) {
 	var rows []struct {
 		Email        string

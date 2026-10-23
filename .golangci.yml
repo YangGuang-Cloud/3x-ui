@@ -23,6 +23,11 @@ linters:
       - frontend
       - internal/web/dist
     rules:
+      # This extension is copied into upstream Xray by build.py, where the
+      # dispatcher calls its entry points. They have no callers in the panel.
+      - path: tools/core-rate-limit/dispatcher\.go
+        linters:
+          - unused
       - path: _test\.go
         linters:
           - errcheck

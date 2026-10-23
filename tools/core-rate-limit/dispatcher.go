@@ -26,9 +26,11 @@ type clientRate struct {
 }
 type bandwidthPair struct{ upload, download *rate.Limiter }
 
-var bandwidthUsers map[string]bandwidthPair
-var bandwidthOnce sync.Once
-var bandwidthLoadErr error
+var (
+	bandwidthUsers   map[string]bandwidthPair
+	bandwidthOnce    sync.Once
+	bandwidthLoadErr error
+)
 
 func loadClientBandwidth() error {
 	bandwidthOnce.Do(func() {
@@ -57,12 +59,14 @@ func loadClientBandwidth() error {
 	})
 	return bandwidthLoadErr
 }
+
 func newBandwidthLimiter(mbps float64) *rate.Limiter {
 	if mbps <= 0 {
 		return nil
 	}
 	return rate.NewLimiter(rate.Limit(mbps*1000000/8), rateBurst)
 }
+
 func bandwidthFor(ctx context.Context) bandwidthPair {
 	inbound := session.InboundFromContext(ctx)
 	if inbound == nil || inbound.User == nil {
@@ -74,6 +78,7 @@ func bandwidthFor(ctx context.Context) bandwidthPair {
 	}
 	return pair
 }
+
 func limitClientPipes(ctx context.Context, inbound, outbound *transport.Link) {
 	pair := bandwidthFor(ctx)
 	if pair.upload != nil {
@@ -83,6 +88,7 @@ func limitClientPipes(ctx context.Context, inbound, outbound *transport.Link) {
 		outbound.Writer = &bandwidthWriter{outbound.Writer, pair.download, ctx}
 	}
 }
+
 func limitClientLink(ctx context.Context, link *transport.Link) {
 	pair := bandwidthFor(ctx)
 	if pair.upload != nil {
@@ -145,9 +151,9 @@ func (r *bandwidthReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 }
 
 func (w *bandwidthWriter) Close() error { return common.Close(w.Writer) }
-func (w *bandwidthWriter) Interrupt()   { common.Interrupt(w.Writer) }
+func (w *bandwidthWriter) Interrupt()   { _ = common.Interrupt(w.Writer) }
 func (r *bandwidthReader) Close() error { return common.Close(r.Reader) }
-func (r *bandwidthReader) Interrupt()   { common.Interrupt(r.Reader) }
+func (r *bandwidthReader) Interrupt()   { _ = common.Interrupt(r.Reader) }
 
 // Sniffing uses TimeoutReader after WrapLink; preserve that interface so
 // enabling sniffing cannot bypass the limiter or panic on a type assertion.

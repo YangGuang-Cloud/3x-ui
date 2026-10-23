@@ -3,10 +3,11 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
@@ -33,6 +34,7 @@ func bandwidthClient(t *testing.T) *ClientService {
 	}
 	return &ClientService{}
 }
+
 func TestClientBandwidthPersistenceAndRollback(t *testing.T) {
 	svc := bandwidthClient(t)
 	limits := model.ClientBandwidth{UploadMbps: 2, DownloadMbps: 8}
@@ -73,6 +75,7 @@ func TestClientBandwidthPersistenceAndRollback(t *testing.T) {
 		t.Fatal("rename lost limits", err)
 	}
 }
+
 func TestClientBandwidthValidationAndStockCore(t *testing.T) {
 	svc := bandwidthClient(t)
 	for _, v := range []float64{-1, .001, 1000001} {
