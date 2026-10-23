@@ -39,6 +39,7 @@ func TestBandwidthPreservesPacketsAndLifecycle(t *testing.T) {
 		t.Fatal("lost stream lifecycle")
 	}
 }
+
 func TestBandwidthCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
