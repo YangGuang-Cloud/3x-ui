@@ -646,6 +646,9 @@ func (p *process) Start() (err error) {
 	if err := writeFileAtomic(ratesPath, rates, 0o600); err != nil {
 		return err
 	}
+	// The managed core is a symlink into a release directory. Keep geodata
+	// lookup in the configured bin directory rather than beside its real file.
+	ensureXrayAssetLocation()
 	cmd := exec.CommandContext(context.Background(), GetBinaryPath(), "-c", configPath)
 	cmd.Env = append(os.Environ(), "XUI_CLIENT_RATE_LIMITS_FILE="+ratesPath)
 	cmd.Stdout = p.logWriter

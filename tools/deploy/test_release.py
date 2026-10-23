@@ -16,6 +16,24 @@ def module():
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_relocated_core_and_rollback_keep_shared_geodata(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            old, new, shared = root/'old', root/'new', root/'shared'
+            for directory in (old, new, shared): directory.mkdir()
+            (shared/'geoip.dat').write_bytes(b'geodata-v1')
+            (shared/'xray-linux-amd64').write_bytes(b'original-core')
+            runtime = root/'runtime'; runtime.symlink_to(old)
+            installer = module()
+            installer.prepare_asset_links(new, shared)
+            installer.prepare_core_link(runtime, shared/'xray-linux-amd64')
+            for release in (old, new):
+                self.assertEqual((release/'geoip.dat').read_bytes(), b'geodata-v1')
+            (shared/'geoip.dat').write_bytes(b'geodata-v2')
+            installer.prepare_core_link(runtime, shared/'xray-linux-amd64')
+            for release in (old, new):
+                self.assertEqual((release/'geoip.dat').read_bytes(), b'geodata-v2')
+
     def test_children_include_processes_started_by_worker_threads(self):
         with tempfile.TemporaryDirectory() as folder:
             proc = Path(folder)

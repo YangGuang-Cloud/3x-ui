@@ -46,9 +46,18 @@ def extract_release(archive, destination, commit):
 
 
 
+def prepare_asset_links(release, shared_bin):
+    """A relocated core must still find shared geodata, including on rollback."""
+    for asset in shared_bin.glob('*.dat'):
+        target = release/asset.name
+        if not target.exists() and not target.is_symlink():
+            target.symlink_to(asset)
+
+
 def prepare_core_link(runtime, shared_core):
     """Keep each release's core with its panel, including the first rollback."""
     previous = runtime.resolve(strict=True)
+    prepare_asset_links(previous, shared_core.parent)
     preserved = previous/'xray-linux-amd64'
     if shared_core.resolve() == preserved:
         return
@@ -169,7 +178,9 @@ def main():
             core_version = subprocess.check_output([str(bundled_core), 'version'], timeout=5).decode()
             if not core_version.startswith('Xray '+CORE_VERSION+' ') or 'SorvoRateV1' not in core_version:
                 raise RuntimeError('Bundled core version or bandwidth capability mismatch')
-            prepare_core_link(runtime, Path('/opt/3x-ui/shared/bin/xray-linux-amd64'))
+            shared_core = Path('/opt/3x-ui/shared/bin/xray-linux-amd64')
+            prepare_asset_links(candidate, shared_core.parent)
+            prepare_core_link(runtime, shared_core)
             backup_dir = Path('/var/backups/3x-ui')
             backup_dir.mkdir(mode=0o700, exist_ok=True)
             backup = backup_dir/(commit+'-'+str(time.time_ns())+'.db')
