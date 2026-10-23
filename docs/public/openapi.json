@@ -8671,6 +8671,125 @@
         }
       }
     },
+    "/panel/api/clients/{email}/bandwidth": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Read local account bandwidth limits in Mbps and core capability.",
+        "operationId": "get_panel_api_clients_email_bandwidth",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "description": "Client email.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "uploadMbps": 0,
+                    "downloadMbps": 0,
+                    "supported": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set shared upload/download Mbps caps for this account on local VLESS inbounds. 0 is unlimited. Restarts the core; restores previous limits if applying fails.",
+        "operationId": "post_panel_api_clients_email_bandwidth",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "description": "Client email.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "uploadMbps": {
+                    "type": "integer",
+                    "description": "0 or 0.01–1000000 Mbps."
+                  },
+                  "downloadMbps": {
+                    "type": "integer",
+                    "description": "0 or 0.01–1000000 Mbps."
+                  }
+                },
+                "required": [
+                  "uploadMbps",
+                  "downloadMbps"
+                ]
+              },
+              "example": {
+                "uploadMbps": 5,
+                "downloadMbps": 20
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/clients/{email}/attach": {
       "post": {
         "tags": [

@@ -23,22 +23,43 @@ def extract_release(archive, destination, commit):
     destination.mkdir(mode=0o755, parents=True, exist_ok=True)
     with tarfile.open(fileobj=archive, mode='r:gz') as bundle:
         members = bundle.getmembers()
-        if len(members) != 2 or {m.name for m in members} != {'x-ui', 'manifest.json'}:
+        names = {m.name for m in members}
+        if len(names) != len(members) or names not in ({'x-ui', 'manifest.json'}, {'x-ui', 'manifest.json', 'xray-linux-amd64'}):
             raise ValueError('Unexpected archive member')
         for member in members:
-            limit = 256 * 1024 * 1024 if member.name == 'x-ui' else 4096
+            limit = 256 * 1024 * 1024 if member.name in ('x-ui', 'xray-linux-amd64') else 4096
             if not member.isfile() or not 0 < member.size <= limit:
                 raise ValueError('Invalid archive member type or size')
             with bundle.extractfile(member) as source, open(destination/member.name, 'xb') as target:
                 shutil.copyfileobj(source, target)
-            (destination/member.name).chmod(0o755 if member.name == 'x-ui' else 0o644)
+            (destination/member.name).chmod(0o755 if member.name in ('x-ui', 'xray-linux-amd64') else 0o644)
     manifest = json.loads((destination/'manifest.json').read_text())
     if manifest.get('commit') != commit or manifest.get('coreVersion') != CORE_VERSION:
         raise ValueError('Release manifest mismatch')
-    with open(destination/'x-ui', 'rb') as binary:
-        header = binary.read(20)
-    if len(header) != 20 or header[:5] != b'\x7fELF\x02' or header[18:20] != b'\x3e\x00':
-        raise ValueError('Expected Linux amd64 executable')
+    for name in ('x-ui', 'xray-linux-amd64'):
+        if name == 'xray-linux-amd64' and name not in names:
+            continue
+        with open(destination/name, 'rb') as binary:
+            header = binary.read(20)
+        if len(header) != 20 or header[:5] != b'\x7fELF\x02' or header[18:20] != b'\x3e\x00':
+            raise ValueError('Expected Linux amd64 executable')
+
+
+
+def prepare_core_link(runtime, shared_core):
+    """Keep each release's core with its panel, including the first rollback."""
+    previous = runtime.resolve(strict=True)
+    preserved = previous/'xray-linux-amd64'
+    if shared_core.resolve() == preserved:
+        return
+    if preserved.exists():
+        raise RuntimeError('Existing release core does not match the managed core link')
+    shutil.copy2(shared_core, preserved)
+    preserved.chmod(0o755)
+    temporary = shared_core.with_name('.xray-managed-next')
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(runtime/'xray-linux-amd64')
+    os.replace(temporary, shared_core)
 
 
 def snapshot(source, target):
@@ -103,7 +124,7 @@ def healthy(candidate, expected_version):
         if version != expected_version:
             return False
         children = child_pids(pid)
-        core = Path('/opt/3x-ui/shared/bin/xray-linux-amd64')
+        core = Path('/opt/3x-ui/shared/bin/xray-linux-amd64').resolve()
         if not any(Path('/proc/'+child+'/exe').resolve() == core for child in children):
             return False
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -142,6 +163,13 @@ def main():
             expected = 'dev+'+commit[:8]
             if subprocess.check_output([str(candidate/'x-ui'), '-v'], timeout=5).decode().strip() != expected:
                 raise RuntimeError('Executable build stamp mismatch')
+            bundled_core = candidate/'xray-linux-amd64'
+            if not bundled_core.is_file():
+                raise RuntimeError('Release must bundle the bandwidth-aware core')
+            core_version = subprocess.check_output([str(bundled_core), 'version'], timeout=5).decode()
+            if not core_version.startswith('Xray '+CORE_VERSION+' ') or 'SorvoRateV1' not in core_version:
+                raise RuntimeError('Bundled core version or bandwidth capability mismatch')
+            prepare_core_link(runtime, Path('/opt/3x-ui/shared/bin/xray-linux-amd64'))
             backup_dir = Path('/var/backups/3x-ui')
             backup_dir.mkdir(mode=0o700, exist_ok=True)
             backup = backup_dir/(commit+'-'+str(time.time_ns())+'.db')

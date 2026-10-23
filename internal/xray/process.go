@@ -638,7 +638,16 @@ func (p *process) Start() (err error) {
 		return common.NewErrorf("Failed to write configuration file: %v", err)
 	}
 
+	ratesPath := configPath + ".rates.json"
+	rates := p.config.ClientRateLimits
+	if len(rates) == 0 {
+		rates = []byte("{}")
+	}
+	if err := writeFileAtomic(ratesPath, rates, 0o600); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(context.Background(), GetBinaryPath(), "-c", configPath)
+	cmd.Env = append(os.Environ(), "XUI_CLIENT_RATE_LIMITS_FILE="+ratesPath)
 	cmd.Stdout = p.logWriter
 	cmd.Stderr = p.logWriter
 

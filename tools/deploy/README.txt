@@ -5,8 +5,9 @@ Target: the managed Ubuntu 20.04 amd64 installation of 3x-ui.
 Push main or manually dispatch. The build checks frontend types, builds frontend assets,
 runs unit/component tests and Go storage/migration tests, and runs Python migration/rollback tests.
 It then builds a static musl Linux executable with the Git commit embedded and uploads an artifact.
-Only the panel executable and manifest enter the release archive. Xray stays pinned to 26.10.10;
-core upgrades need their own compatibility validation and are not performed on a normal push.
+The archive contains the panel, manifest and the SorvoRateV1 bandwidth-aware core built from
+the pinned Xray 26.10.10 source. Panel and core switch and roll back together. Protocol/version
+upgrades still require separate compatibility validation. See tools/core-rate-limit/README.txt.
 
 Production environment:
 DEPLOY_HOST variable: server host/IP.
@@ -20,7 +21,7 @@ installed as /usr/local/sbin/3x-ui-deploy; application releases and sudoers stay
 
 Server layout:
 /opt/3x-ui/runtime -> /opt/3x-ui/releases/<commit>-<unique suffix>
-/opt/3x-ui/shared/bin stores the separately managed core and geodata.
+/opt/3x-ui/shared/bin stores geodata and a core symlink through runtime/xray-linux-amd64.
 /var/lib/3x-ui stores the SQLite database and persistent application data.
 /etc/3x-ui/runtime.env stores runtime configuration.
 /etc/3x-ui/admin.json contains the server-generated management credential; never upload it.

@@ -67,6 +67,27 @@ class DeploymentTests(unittest.TestCase):
             with sqlite3.connect(root/'backup.db') as c:
                 self.assertEqual(c.execute('SELECT name FROM sqlite_master WHERE type="table"').fetchall(), [('nodes',)])
 
+    def test_core_tracks_runtime_and_rolls_back_with_panel(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            old, new = root/'old', root/'new'
+            old.mkdir(); new.mkdir()
+            shared = root/'shared-core'; shared.write_bytes(b'original-core')
+            (new/'xray-linux-amd64').write_bytes(b'new-core')
+            runtime = root/'runtime'; runtime.symlink_to(old)
+            installer = module()
+            installer.prepare_core_link(runtime, shared)
+            self.assertEqual(shared.read_bytes(), b'original-core')
+            db = root/'x-ui.db'
+            with sqlite3.connect(db) as c: c.execute('CREATE TABLE nodes(id INTEGER)')
+            observed = []
+            def service(action):
+                if action == 'start': observed.append(shared.read_bytes())
+            with self.assertRaisesRegex(RuntimeError, 'health'):
+                installer.activate(new, runtime, db, root/'backup.db', service, lambda: False)
+            self.assertEqual(observed, [b'new-core', b'original-core'])
+            self.assertEqual(shared.read_bytes(), b'original-core')
+
     def test_archive_cannot_escape_or_include_database(self):
         for name in ['../escape', 'x-ui.db']:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:

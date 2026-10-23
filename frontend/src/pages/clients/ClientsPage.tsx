@@ -93,6 +93,7 @@ const BulkDetachInboundsModal = lazy(() => import('./BulkDetachInboundsModal'));
 const TextModal = lazy(() => import('@/components/feedback/TextModal'));
 const PromptModal = lazy(() => import('@/components/feedback/PromptModal'));
 import { ClientInboundChips, ClientRowActions } from './RowCells';
+import ClientBandwidthModal from './ClientBandwidthModal';
 import { emptyFilters, activeFilterCount } from './filters';
 import type { ClientFilters } from './filters';
 import './ClientsPage.css';
@@ -395,6 +396,7 @@ export default function ClientsPage() {
   const [togglingEmail, setTogglingEmail] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
+  const [bandwidthEmail, setBandwidthEmail] = useState<string | null>(null);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [editingAttachedIds, setEditingAttachedIds] = useState<number[]>([]);
   const [editingExternalLinks, setEditingExternalLinks] = useState<ExternalLink[]>([]);
@@ -1060,7 +1062,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.actions'),
         key: 'actions',
-        width: 200,
+        width: 232,
         render: (_v, record) => (
           <ClientRowActions
             email={record.email}
@@ -1069,6 +1071,7 @@ export default function ClientsPage() {
             onResetTraffic={onResetTraffic}
             onEdit={onEdit}
             onDelete={onDelete}
+            onBandwidth={setBandwidthEmail}
           />
         ),
       },
@@ -1826,6 +1829,11 @@ export default function ClientsPage() {
                                               onClick: () => onResetTraffic(row.email),
                                             },
                                             {
+                                              key: 'bandwidth',
+                                              label: t('pages.clients.bandwidthTitle'),
+                                              onClick: () => setBandwidthEmail(row.email),
+                                            },
+                                            {
                                               key: 'edit',
                                               label: (
                                                 <>
@@ -1889,6 +1897,13 @@ export default function ClientsPage() {
           </Layout.Content>
         </Layout>
 
+        {bandwidthEmail !== null && (
+          <ClientBandwidthModal
+            key={bandwidthEmail}
+            email={bandwidthEmail}
+            onClose={() => setBandwidthEmail(null)}
+          />
+        )}
         <LazyMount when={formOpen}>
           <ClientFormModal
             open={formOpen}

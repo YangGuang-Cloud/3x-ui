@@ -1085,6 +1085,9 @@ func parseXrayDigestSHA256(dgst []byte) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
+	if xray.SupportsClientBandwidth() {
+		return fmt.Errorf("this managed core includes per-client bandwidth limits; update it through the project deployment workflow to preserve that capability")
+	}
 	versions, err := s.GetXrayVersions()
 	if err != nil {
 		return err

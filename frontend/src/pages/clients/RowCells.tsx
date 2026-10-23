@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Popover, Space, Tag, Tooltip } from 'antd';
 import {
+  DashboardOutlined,
   DeleteOutlined,
   EditOutlined,
   InfoCircleOutlined,
@@ -21,6 +22,7 @@ interface ClientRowActionsProps {
   onResetTraffic: (email: string) => void;
   onEdit: (email: string) => void;
   onDelete: (email: string) => void;
+  onBandwidth?: (email: string) => void;
 }
 
 // Five Tooltip-wrapped buttons per row, none of which depend on traffic. Left
@@ -35,6 +37,7 @@ export const ClientRowActions = memo(function ClientRowActions({
   onResetTraffic,
   onEdit,
   onDelete,
+  onBandwidth,
 }: ClientRowActionsProps) {
   const { t } = useTranslation();
   return (
@@ -79,6 +82,18 @@ export const ClientRowActions = memo(function ClientRowActions({
           onClick={() => onEdit(email)}
         />
       </Tooltip>
+      {onBandwidth && (
+        <Tooltip title={t('pages.clients.bandwidthTitle')}>
+          <Button
+            size="small"
+            type="text"
+            style={ICON_BUTTON_STYLE}
+            icon={<DashboardOutlined />}
+            aria-label={t('pages.clients.bandwidthTitle')}
+            onClick={() => onBandwidth(email)}
+          />
+        </Tooltip>
+      )}
       <Tooltip title={t('delete')}>
         <Button
           size="small"

@@ -176,6 +176,13 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	xrayConfig.ClientRateLimits, err = generatedClientBandwidth()
+	if err != nil {
+		return nil, err
+	}
+	if len(xrayConfig.ClientRateLimits) > 0 && !xray.SupportsClientBandwidth() {
+		return nil, fmt.Errorf("configured client bandwidth requires the managed SorvoRateV1 core")
+	}
 	xrayConfig.LogConfig = resolveXrayLogPaths(xrayConfig.LogConfig)
 	xrayConfig.API = ensureAPIServices(xrayConfig.API)
 	xrayConfig.Policy = ensureStatsPolicy(xrayConfig.Policy)

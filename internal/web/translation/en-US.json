@@ -753,6 +753,11 @@
       "sniffingDestOverride": "Destination override"
     },
     "clients": {
+      "bandwidthTitle": "Client bandwidth limit",
+      "bandwidthUpload": "Upload limit",
+      "bandwidthDownload": "Download limit",
+      "bandwidthHelp": "0 means unlimited. Mbps = megabits/s (8 Mbps = 1 MB/s). All local VLESS connections of this account share these limits. Saving reconnects local nodes briefly.",
+      "bandwidthUnsupported": "This core does not support account bandwidth limits. Install the managed bandwidth-aware core before enabling limits.",
       "tabBasics": "Basics",
       "tabCredentials": "Credentials",
       "tabLinks": "Links",

@@ -1252,6 +1252,26 @@ export const sections: readonly Section[] = [
         response: '{\n  "success": true,\n  "msg": "Client deleted"\n}',
       },
       {
+        method: 'GET',
+        path: '/panel/api/clients/:email/bandwidth',
+        summary: 'Read local account bandwidth limits in Mbps and core capability.',
+        params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
+        response: '{"success":true,"obj":{"uploadMbps":0,"downloadMbps":0,"supported":true}}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/clients/:email/bandwidth',
+        summary:
+          'Set shared upload/download Mbps caps for this account on local VLESS inbounds. 0 is unlimited. Restarts the core; restores previous limits if applying fails.',
+        params: [
+          { name: 'email', in: 'path', type: 'string', desc: 'Client email.' },
+          { name: 'uploadMbps', in: 'body', type: 'number', desc: '0 or 0.01–1000000 Mbps.' },
+          { name: 'downloadMbps', in: 'body', type: 'number', desc: '0 or 0.01–1000000 Mbps.' },
+        ],
+        body: '{"uploadMbps":5,"downloadMbps":20}',
+        response: '{"success":true}',
+      },
+      {
         method: 'POST',
         path: '/panel/api/clients/:email/attach',
         summary: 'Attach an existing client to one or more additional inbounds. Body is JSON.',

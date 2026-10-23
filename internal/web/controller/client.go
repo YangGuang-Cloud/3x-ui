@@ -11,6 +11,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/web/entity"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/websocket"
+	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,6 +51,8 @@ func NewClientController(g *gin.RouterGroup) *ClientController {
 }
 
 func (a *ClientController) initRouter(g *gin.RouterGroup) {
+	g.GET("/:email/bandwidth", a.getBandwidth)
+	g.POST("/:email/bandwidth", a.setBandwidth)
 	g.GET("/list", a.list)
 	g.GET("/list/paged", a.listPaged)
 	g.GET("/get/:email", a.get)
@@ -730,4 +733,29 @@ func (a *ClientController) bulkResetTraffic(c *gin.Context) {
 	jsonObj(c, gin.H{"affected": affected}, nil)
 	a.xrayService.SetToNeedRestart()
 	notifyClientsChanged()
+}
+
+func (a *ClientController) getBandwidth(c *gin.Context) {
+	value, err := a.clientService.GetBandwidth(c.Param("email"))
+	jsonObj(c, gin.H{"uploadMbps": value.UploadMbps, "downloadMbps": value.DownloadMbps, "supported": xray.SupportsClientBandwidth()}, err)
+}
+func (a *ClientController) setBandwidth(c *gin.Context) {
+	var form struct {
+		UploadMbps   *float64 `json:"uploadMbps"`
+		DownloadMbps *float64 `json:"downloadMbps"`
+	}
+	if err := c.ShouldBindJSON(&form); err != nil {
+		jsonObj(c, nil, err)
+		return
+	}
+	if form.UploadMbps == nil || form.DownloadMbps == nil {
+		jsonObj(c, nil, errors.New("uploadMbps and downloadMbps are both required"))
+		return
+	}
+	value := model.ClientBandwidth{UploadMbps: *form.UploadMbps, DownloadMbps: *form.DownloadMbps}
+	err := a.clientService.SetBandwidth(c.Param("email"), value, func() error { return a.xrayService.RestartXray(false) })
+	if err == nil {
+		notifyClientsChanged()
+	}
+	jsonObj(c, value, err)
 }
