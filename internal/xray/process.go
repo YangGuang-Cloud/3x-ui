@@ -648,9 +648,16 @@ func (p *process) Start() (err error) {
 	}
 	// The managed core is a symlink into a release directory. Keep geodata
 	// lookup in the configured bin directory rather than beside its real file.
-	ensureXrayAssetLocation()
+	environment := os.Environ()
+	if os.Getenv("XRAY_LOCATION_ASSET") == "" && os.Getenv("xray.location.asset") == "" {
+		assets, err := filepath.Abs(config.GetBinFolderPath())
+		if err != nil {
+			return err
+		}
+		environment = append(environment, "XRAY_LOCATION_ASSET="+assets)
+	}
 	cmd := exec.CommandContext(context.Background(), GetBinaryPath(), "-c", configPath)
-	cmd.Env = append(os.Environ(), "XUI_CLIENT_RATE_LIMITS_FILE="+ratesPath)
+	cmd.Env = append(environment, "XUI_CLIENT_RATE_LIMITS_FILE="+ratesPath)
 	cmd.Stdout = p.logWriter
 	cmd.Stderr = p.logWriter
 

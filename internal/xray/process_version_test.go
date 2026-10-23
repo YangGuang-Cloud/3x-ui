@@ -72,6 +72,9 @@ func TestStartPassesSharedAssetsToRelocatedCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = p.Stop() })
+	if os.Getenv("XRAY_LOCATION_ASSET") != "" {
+		t.Fatal("starting a child core changed the panel's asset environment")
+	}
 	deadline := time.Now().Add(time.Second)
 	for {
 		body, err := os.ReadFile(capture)
