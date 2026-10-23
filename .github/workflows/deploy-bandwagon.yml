@@ -24,8 +24,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: bandwagon-production
-  cancel-in-progress: false
+  group: bandwagon-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/Release' }}
 
 jobs:
   build:

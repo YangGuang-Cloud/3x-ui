@@ -5,6 +5,8 @@ Target: the managed Ubuntu 20.04 amd64 installation of 3x-ui.
 Push main only builds and tests. Push Release builds/tests and then automatically deploys
 only if all checks pass. There is no manual environment approval, per the owner's final instruction.
 Release promotion is a production action; routine development pushes must target main.
+Build queues are separate per branch. New development builds may cancel older development
+builds, while a Release deployment is never cancelled by a main/development push.
 Manual workflow retries must select Release and provide expected_commit equal to the full SHA.
 Release was created from c362c86ef0d033cae2ab13b3e10d18d8e68b381c (known-good production).
 The initial release-guard setup commit uses [skip ci] only to avoid replacing the live program
