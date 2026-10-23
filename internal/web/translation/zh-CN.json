@@ -108,6 +108,7 @@
     "saveQr": "保存二维码"
   },
   "menu": {
+    "account": "管理员账号",
     "theme": "主题",
     "dashboard": "系统状态",
     "inbounds": "入站",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "登录后在此浏览器保持登录，可从右上角账号菜单退出。",
       "hello": "你好",
       "title": "欢迎",
       "loginAgain": "登录时效已过，请重新登录",

@@ -245,6 +245,7 @@ export default function LoginPage() {
                         {t('login')}
                       </Button>
                     </Form.Item>
+                    <p className="login-session-hint">{t('pages.login.staySignedIn')}</p>
                   </Form>
                 </FormProvider>
               </div>

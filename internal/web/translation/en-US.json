@@ -108,6 +108,7 @@
     "saveQr": "Save QR"
   },
   "menu": {
+    "account": "Administrator account",
     "theme": "Theme",
     "dashboard": "Overview",
     "inbounds": "Inbounds",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "Stay signed in on this browser. You can sign out from the account menu.",
       "hello": "Hello",
       "title": "Welcome",
       "loginAgain": "Your session has expired, please log in again",

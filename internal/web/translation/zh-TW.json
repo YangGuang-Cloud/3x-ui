@@ -108,6 +108,7 @@
     "saveQr": "儲存 QR 碼"
   },
   "menu": {
+    "account": "管理員帳號",
     "theme": "主題",
     "dashboard": "系統狀態",
     "inbounds": "入站",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "登入後在此瀏覽器保持登入，可從右上角帳號選單登出。",
       "hello": "你好",
       "title": "歡迎",
       "loginAgain": "登入時效已過，請重新登入",

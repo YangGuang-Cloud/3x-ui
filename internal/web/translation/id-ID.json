@@ -108,6 +108,7 @@
     "saveQr": "Simpan QR"
   },
   "menu": {
+    "account": "Akun administrator",
     "theme": "Tema",
     "dashboard": "Ikhtisar",
     "inbounds": "Inbound",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "Tetap masuk di browser ini. Anda dapat keluar melalui menu akun.",
       "hello": "Halo",
       "title": "Selamat Datang",
       "loginAgain": "Sesi Anda telah berakhir, harap masuk kembali",

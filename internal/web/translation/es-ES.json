@@ -108,6 +108,7 @@
     "saveQr": "Guardar QR"
   },
   "menu": {
+    "account": "Cuenta de administrador",
     "theme": "Tema",
     "dashboard": "Estado del Sistema",
     "inbounds": "Entradas",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "Mantén la sesión iniciada en este navegador. Puedes cerrarla desde el menú de la cuenta.",
       "hello": "Hola",
       "title": "Bienvenido",
       "loginAgain": "El límite de tiempo de inicio de sesión ha expirado. Por favor, inicia sesión nuevamente.",

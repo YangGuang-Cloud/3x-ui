@@ -1,0 +1,28 @@
+.panel-account-menu {
+  position: fixed;
+  top: 12px;
+  right: 24px;
+  z-index: 205;
+}
+
+.panel-account-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Reserve a row so the account menu never covers a page's actions. */
+.ant-sidebar + .content-shell {
+  padding-top: 48px;
+}
+
+@media (max-width: 768px) {
+  .panel-account-menu {
+    top: 8px;
+    right: 12px;
+  }
+
+  .panel-account-name {
+    max-width: 120px;
+  }
+}

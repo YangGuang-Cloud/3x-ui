@@ -108,6 +108,7 @@
     "saveQr": "Lưu QR"
   },
   "menu": {
+    "account": "Tài khoản quản trị viên",
     "theme": "Chủ đề",
     "dashboard": "Trạng thái hệ thống",
     "inbounds": "Inbound",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "Duy trì đăng nhập trên trình duyệt này. Bạn có thể đăng xuất từ menu tài khoản.",
       "hello": "Xin chào",
       "title": "Chào mừng",
       "loginAgain": "Thời hạn đăng nhập đã hết. Vui lòng đăng nhập lại.",

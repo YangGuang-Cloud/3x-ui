@@ -142,6 +142,11 @@ func serveDistPage(c *gin.Context, name string) {
 	inject := []byte(script)
 	inject = append(inject, csrfMeta...)
 	inject = append(inject, basePathMeta...)
+	if name == "index.html" {
+		if user := session.GetLoginUser(c); user != nil {
+			inject = append(inject, []byte(`<meta name="current-user" content="`+htmlpkg.EscapeString(user.Username)+`">`)...)
+		}
+	}
 	inject = append(inject, pwaHeadInjection(basePath, name)...)
 	inject = append(inject, []byte(`</head>`)...)
 	out := bytes.Replace(body, []byte("</head>"), inject, 1)

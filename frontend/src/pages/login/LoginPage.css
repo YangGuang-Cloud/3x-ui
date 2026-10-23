@@ -411,3 +411,10 @@
 .submit-row {
   margin-bottom: 0;
 }
+
+.login-session-hint {
+  margin: 12px 0 0;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  text-align: center;
+}

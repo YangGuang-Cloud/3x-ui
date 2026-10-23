@@ -108,6 +108,7 @@
     "saveQr": "QR'ı kaydet"
   },
   "menu": {
+    "account": "Yönetici hesabı",
     "theme": "Tema",
     "dashboard": "Genel Bakış",
     "inbounds": "Gelen Bağlantılar",
@@ -128,6 +129,7 @@
   },
   "pages": {
     "login": {
+      "staySignedIn": "Bu tarayıcıda oturumunuz açık kalır. Hesap menüsünden çıkış yapabilirsiniz.",
       "hello": "Merhaba",
       "title": "Hoş Geldiniz",
       "loginAgain": "Oturum süreniz doldu, lütfen tekrar giriş yapın.",
