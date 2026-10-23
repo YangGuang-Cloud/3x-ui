@@ -1,22 +1,176 @@
 #!/usr/bin/python3 -I
 """Root-owned deployment entry point for the managed 3x-ui installation."""
+import copy
 import fcntl
+import hashlib
 import json
 import os
 import re
 import shutil
 import socket
 import sqlite3
+import ssl
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 
 CORE_VERSION = '26.10.10'
+PROBE_URLS = ('https://example.com/', 'https://www.cloudflare.com/cdn-cgi/trace')
+
+
+def loopback_port():
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0))
+        return listener.getsockname()[1]
+
+
+def isolated_config(config, directory):
+    """Clone the supported production topology without touching its listeners."""
+    supported = {'log', 'routing', 'inbounds', 'outbounds', 'policy', 'api', 'stats', 'metrics', 'dns', 'xuiClientRateLimits'}
+    if set(config) - supported:
+        raise RuntimeError('Unreviewed core configuration features; isolated validation required')
+    result = copy.deepcopy(config)
+    result['log'] = {'loglevel': 'warning', 'access': 'none', 'error': str(directory/'core.log')}
+    api_tag = config.get('api', {}).get('tag')
+    for inbound in result.get('inbounds', []):
+        if inbound.get('protocol') != 'vless' and not (api_tag and inbound.get('tag') == api_tag):
+            raise RuntimeError('Unreviewed inbound; cannot guarantee isolated listeners')
+        if inbound.get('streamSettings', {}).get('sockopt', {}).get('tproxy') not in (None, '', 'off'):
+            raise RuntimeError('Transparent proxy requires separate staging')
+        inbound['listen'], inbound['port'] = '127.0.0.1', loopback_port()
+        # Do not redirect arbitrary DNS tunnel listeners implicitly.
+    if 'listen' in result.get('dns', {}):
+        raise RuntimeError('DNS listener requires separate staging')
+    if result.get('metrics'):
+        result['metrics']['listen'] = '127.0.0.1:'+str(loopback_port())
+    return result
+
+
+def probe_client(config):
+    """Use actual VLESS credentials and pinned production certificates privately."""
+    result = {'log': {'loglevel': 'none'}, 'inbounds': [], 'outbounds': [], 'routing': {'rules': []}}
+    ports = []
+    for inbound in config.get('inbounds', []):
+        if inbound.get('protocol') != 'vless':
+            continue
+        stream = inbound.get('streamSettings', {})
+        network, security = stream.get('network', 'tcp'), stream.get('security', 'none')
+        if network not in ('tcp', 'raw', 'ws') or security not in ('tls', 'none'):
+            raise RuntimeError('Transport requires a reviewed staging probe')
+        clients = inbound.get('settings', {}).get('clients', [])
+        if not clients:
+            raise RuntimeError('Cannot verify inbound without a client')
+        client = clients[0]
+        outbound_stream = {'network': network, 'security': security}
+        if network == 'ws':
+            outbound_stream['wsSettings'] = copy.deepcopy(stream.get('wsSettings', {}))
+        if security == 'tls':
+            certificates = stream.get('tlsSettings', {}).get('certificates', [])
+            if not certificates:
+                raise RuntimeError('TLS probe requires a production certificate')
+            cert = certificates[0]
+            pem = Path(cert['certificateFile']).read_text() if cert.get('certificateFile') else '\n'.join(cert.get('certificate', []))
+            match = re.search(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pem, re.S)
+            if not match:
+                raise RuntimeError('Cannot load TLS certificate for probe')
+            fingerprint = hashlib.sha256(ssl.PEM_cert_to_DER_cert(match.group(0))).hexdigest()
+            outbound_stream['tlsSettings'] = {'pinnedPeerCertSha256': fingerprint}
+        tag, port = 'verify-'+str(len(ports)), loopback_port()
+        ports.append(port)
+        result['inbounds'].append({'tag': tag, 'listen': '127.0.0.1', 'port': port, 'protocol': 'socks', 'settings': {'auth': 'noauth'}})
+        result['outbounds'].append({'tag': tag, 'protocol': 'vless', 'settings': {'vnext': [{'address': '127.0.0.1', 'port': inbound['port'], 'users': [{'id': client['id'], 'encryption': 'none', 'flow': client.get('flow', '')}]}]}, 'streamSettings': outbound_stream})
+        result['routing']['rules'].append({'type': 'field', 'inboundTag': [tag], 'outboundTag': tag})
+    if not ports:
+        raise RuntimeError('No VLESS inbound was verified')
+    return result, ports
+
+
+@contextmanager
+def temporary_core(core, config, directory, name, environment):
+    path = directory/(name+'.json')
+    path.write_text(json.dumps(config))
+    path.chmod(0o600)
+    with open(directory/(name+'.stderr'), 'wb') as log:
+        process = subprocess.Popen([str(core), 'run', '-c', str(path)], env=environment, stdout=log, stderr=log)
+        try:
+            yield process
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+
+
+def core_environment(shared_bin, rates_path):
+    environment = dict(os.environ, XRAY_LOCATION_ASSET=str(shared_bin), XUI_CLIENT_RATE_LIMITS_FILE=str(rates_path))
+    return environment
+
+
+def verify_forwarding(core, config, directory, environment, urls=PROBE_URLS):
+    client, ports = probe_client(config)
+    with temporary_core(core, client, directory, 'probe-client', environment) as process:
+        for port in ports:
+            deadline = time.monotonic()+10
+            while True:
+                if process.poll() is not None:
+                    raise RuntimeError('Probe client failed to start; see private staging logs')
+                try:
+                    with socket.create_connection(('127.0.0.1', port), timeout=.2):
+                        break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('Probe client did not listen')
+                    time.sleep(.1)
+            for url in urls:
+                checked = subprocess.run(['curl', '--noproxy', '', '--socks5-hostname', '127.0.0.1:'+str(port), '--connect-timeout', '5', '--max-time', '12', '--silent', '--fail', '--output', '/dev/null', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if checked.returncode == 0:
+                    break
+            else:
+                raise RuntimeError('Actual proxy request failed; release must not be accepted')
+    return len(ports)
+
+
+def preflight(candidate, config_path, shared_bin, directory, urls=PROBE_URLS):
+    """No service stop, runtime switch or production configuration writes here."""
+    body = config_path.read_bytes()
+    original = json.loads(body)
+    rates = Path(str(config_path)+'.rates.json')
+    staged_rates = directory/'rates.json'
+    rates_body = rates.read_bytes() if rates.exists() else None
+    staged_rates.write_bytes(rates_body if rates_body is not None else b'{}')
+    staged_rates.chmod(0o600)
+    environment = core_environment(shared_bin, staged_rates)
+    core = candidate/'xray-linux-amd64'
+    with open(directory/'config-test.log', 'wb') as log:
+        subprocess.run([str(core), 'run', '-test', '-c', str(config_path)], env=environment, stdout=log, stderr=log, timeout=30, check=True)
+    isolated = isolated_config(original, directory)
+    with temporary_core(core, isolated, directory, 'candidate-server', environment) as process:
+        for inbound in isolated['inbounds']:
+            deadline = time.monotonic()+10
+            while True:
+                if process.poll() is not None:
+                    raise RuntimeError('Isolated candidate failed to start; production was not stopped')
+                try:
+                    with socket.create_connection(('127.0.0.1', inbound['port']), timeout=.2):
+                        break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('Isolated candidate failed to listen')
+                    time.sleep(.1)
+        count = verify_forwarding(core, isolated, directory, environment, urls)
+    if config_path.read_bytes() != body or (rates.read_bytes() if rates.exists() else None) != rates_body:
+        raise RuntimeError('Live configuration changed during validation; retry before cutover')
+    print('Isolated production-config validation passed: '+str(count)+' VLESS inbounds', flush=True)
+    return original
 
 
 def extract_release(archive, destination, commit):
@@ -54,23 +208,6 @@ def prepare_asset_links(release, shared_bin):
             target.symlink_to(asset)
 
 
-def prepare_core_link(runtime, shared_core):
-    """Keep each release's core with its panel, including the first rollback."""
-    previous = runtime.resolve(strict=True)
-    prepare_asset_links(previous, shared_core.parent)
-    preserved = previous/'xray-linux-amd64'
-    if shared_core.resolve() == preserved:
-        return
-    if preserved.exists():
-        raise RuntimeError('Existing release core does not match the managed core link')
-    shutil.copy2(shared_core, preserved)
-    preserved.chmod(0o755)
-    temporary = shared_core.with_name('.xray-managed-next')
-    temporary.unlink(missing_ok=True)
-    temporary.symlink_to(runtime/'xray-linux-amd64')
-    os.replace(temporary, shared_core)
-
-
 def snapshot(source, target):
     with sqlite3.connect(Path(source).resolve().as_uri()+'?mode=ro', uri=True) as src:
         with sqlite3.connect(target) as dst:
@@ -87,30 +224,38 @@ def switch(runtime, target):
     os.replace(link, runtime)
 
 
-def activate(candidate, runtime, database, backup, service, check):
+def activate(candidate, runtime, database, backup, service, check, rollback_check, pre_stop=None):
     previous = runtime.resolve(strict=True)
+    if pre_stop is not None:
+        pre_stop()
     stopped = False
     switched = False
     try:
-        service('stop')
         stopped = True
+        service('stop')
         snapshot(database, backup)
         switch(runtime, candidate)
         switched = True
         service('start')
         if not check():
             raise RuntimeError('Release health check failed')
-    except BaseException:
+    except BaseException as failure:
         if stopped:
-            service('stop')
-            if switched:
-                switch(runtime, previous)
-                for suffix in ('-wal', '-shm'):
-                    Path(str(database)+suffix).unlink(missing_ok=True)
-                restored = database.with_name('.restore-x-ui.db')
-                shutil.copy2(backup, restored)
-                os.replace(restored, database)
-            service('start')
+            try:
+                service('stop')
+                if switched:
+                    switch(runtime, previous)
+                    for suffix in ('-wal', '-shm'):
+                        Path(str(database)+suffix).unlink(missing_ok=True)
+                    restored = database.with_name('.restore-x-ui.db')
+                    shutil.copy2(backup, restored)
+                    os.replace(restored, database)
+                service('start')
+                if not rollback_check():
+                    raise RuntimeError('Previous release did not recover proxy traffic')
+                print('Rollback verified: previous release forwards traffic', flush=True)
+            except BaseException as rollback_error:
+                raise RuntimeError('ROLLBACK FAILED; manual recovery required: '+str(rollback_error)) from failure
         raise
 
 
@@ -146,6 +291,21 @@ def healthy(candidate, expected_version):
         return False
 
 
+def accepted_live(release, version, shared_bin, directory):
+    for _ in range(30):
+        if healthy(release, version):
+            try:
+                config = shared_bin/'config.json'
+                rates = Path(str(config)+'.rates.json')
+                environment = core_environment(shared_bin, rates)
+                verify_forwarding(release/'xray-linux-amd64', json.loads(config.read_text()), directory, environment)
+                return True
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+                return False
+        time.sleep(1)
+    return False
+
+
 def main():
     if os.geteuid() != 0 or len(sys.argv) != 2 or not re.fullmatch('[a-f0-9]{40}', sys.argv[1]):
         raise SystemExit('Usage: sudo 3x-ui-deploy <40-character commit SHA>')
@@ -179,20 +339,45 @@ def main():
             if not core_version.startswith('Xray '+CORE_VERSION+' ') or 'SorvoRateV1' not in core_version:
                 raise RuntimeError('Bundled core version or bandwidth capability mismatch')
             shared_core = Path('/opt/3x-ui/shared/bin/xray-linux-amd64')
+            previous = runtime.resolve(strict=True)
+            # Deployment must not rewrite the last known-good installation.
+            # Converting a legacy shared executable is a separate migration.
+            if not shared_core.is_symlink() or shared_core.resolve() != previous/'xray-linux-amd64':
+                raise RuntimeError('Managed core link required; migrate legacy layout separately')
             prepare_asset_links(candidate, shared_core.parent)
-            prepare_core_link(runtime, shared_core)
+            previous_version = subprocess.check_output([str(previous/'x-ui'), '-v'], timeout=5).decode().strip()
             backup_dir = Path('/var/backups/3x-ui')
             backup_dir.mkdir(mode=0o700, exist_ok=True)
             backup = backup_dir/(commit+'-'+str(time.time_ns())+'.db')
             def service(action):
                 subprocess.run(['systemctl', action, '3x-ui'], check=True, timeout=35)
-            def check():
-                for _ in range(30):
-                    if healthy(candidate, expected):
-                        return True
-                    time.sleep(1)
-                return False
-            activate(candidate, runtime, Path('/var/lib/3x-ui/x-ui.db'), backup, service, check)
+            # All candidate processes are private loopback processes. The live
+            # service, runtime link and database remain untouched during preflight.
+            with tempfile.TemporaryDirectory(prefix='3x-ui-preflight-') as folder:
+                directory = Path(folder)
+                shared_bin = shared_core.parent
+                config_path = shared_bin/'config.json'
+                rates_path = Path(str(config_path)+'.rates.json')
+                def signature():
+                    return (runtime.resolve(), shared_core.resolve(), config_path.read_bytes(), rates_path.read_bytes() if rates_path.exists() else None)
+                before = signature()
+                old_check = lambda: accepted_live(previous, previous_version, shared_bin, directory)
+                if not old_check():
+                    raise RuntimeError('Live baseline is unhealthy; recover it before deploying')
+                try:
+                    preflight(candidate, config_path, shared_bin, directory)
+                except BaseException:
+                    # Preserve private diagnostics, never credentials in CI output.
+                    diagnostics = backup_dir/('failed-preflight-'+commit+'-'+str(time.time_ns()))
+                    shutil.copytree(directory, diagnostics)
+                    diagnostics.chmod(0o700)
+                    print('Candidate rejected before cutover; private diagnostics: '+str(diagnostics), flush=True)
+                    raise
+                def pre_stop():
+                    if signature() != before:
+                        raise RuntimeError('Live state changed after validation; production was not stopped')
+                activate(candidate, runtime, Path('/var/lib/3x-ui/x-ui.db'), backup, service,
+                         lambda: accepted_live(candidate, expected, shared_bin, directory), old_check, pre_stop)
             incoming.unlink(missing_ok=True)
             print('Deployed '+commit, flush=True)
         except BaseException:
