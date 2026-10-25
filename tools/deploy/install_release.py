@@ -24,6 +24,11 @@ CORE_VERSION = '26.10.10'
 PROBE_URLS = ('https://example.com/', 'https://www.cloudflare.com/cdn-cgi/trace')
 
 
+def require_fallback():
+    """Fail closed before cutover; never manage or replace the fallback service."""
+    subprocess.run(['/usr/local/sbin/xray-fallback-check'], check=True, timeout=50)
+
+
 def loopback_port():
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
@@ -374,6 +379,7 @@ def main():
                     print('Candidate rejected before cutover; private diagnostics: '+str(diagnostics), flush=True)
                     raise
                 def pre_stop():
+                    require_fallback()
                     if signature() != before:
                         raise RuntimeError('Live state changed after validation; production was not stopped')
                 activate(candidate, runtime, Path('/var/lib/3x-ui/x-ui.db'), backup, service,

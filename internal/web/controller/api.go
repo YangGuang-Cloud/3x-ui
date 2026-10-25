@@ -187,6 +187,7 @@ func (a *APIController) initRouter(g *gin.RouterGroup) {
 	a.inboundController = NewInboundController(inbounds)
 
 	clients := api.Group("/clients")
+	NewBandwagonController(api)
 	NewClientController(clients)
 	NewGroupController(clients)
 

@@ -59,6 +59,8 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		return false, false, nil, nil, nil, err
 	}
 
+	recordBandwagonTraffic(clientTraffics)
+
 	var (
 		needRestart          bool
 		clientsDisabled      bool

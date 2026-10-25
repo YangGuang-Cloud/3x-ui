@@ -63,6 +63,11 @@ review and external client verification.
 Deployments interrupt existing connections briefly. Releases and backups are kept for recovery;
 a retention policy must be added before long-term unattended use fills the disk.
 
+Independent fallback is installed as xray-fallback.service on TCP 24444. Immediately before
+cutover, xray-fallback-check must pass a real HTTPS proxy request; failure aborts before stopping
+3x-ui. The fallback executable/configuration live outside /opt/3x-ui and are never updated or
+restarted by this installer. See ../fallback/README.txt. Client-side switching is manual.
+
 The original multi-platform release workflow remains manually runnable and tag-triggered,
 but no longer runs on each main push alongside this server-specific deployment.
 The upstream CI workflow is preserved.

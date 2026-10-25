@@ -17,6 +17,28 @@ def module():
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_unusable_fallback_prevents_live_stop(self):
+        installer = module()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            old, new = root/'old', root/'new'
+            old.mkdir(); new.mkdir()
+            runtime = root/'runtime'; runtime.symlink_to(old)
+            actions = []
+            with mock.patch.object(installer.subprocess, 'run', side_effect=installer.subprocess.CalledProcessError(1, ['fallback-check'])):
+                with self.assertRaises(installer.subprocess.CalledProcessError):
+                    installer.activate(new, runtime, root/'db', root/'backup', actions.append,
+                                       lambda: True, lambda: True, installer.require_fallback)
+            self.assertEqual(actions, [])
+            self.assertEqual(runtime.resolve(), old)
+
+    def test_missing_or_timed_out_fallback_fails_closed(self):
+        installer = module()
+        for failure in (FileNotFoundError(), installer.subprocess.TimeoutExpired('fallback-check', 50)):
+            with self.subTest(failure=type(failure).__name__), mock.patch.object(installer.subprocess, 'run', side_effect=failure):
+                with self.assertRaises(type(failure)):
+                    installer.require_fallback()
+
     def test_failed_stop_still_attempts_recovery(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()

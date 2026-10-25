@@ -76,6 +76,8 @@ func allModels() []any {
 		&model.ApiToken{},
 		&model.ClientRecord{},
 		&model.ClientBandwidth{},
+		&model.BandwagonCycle{},
+		&model.BandwagonTraffic{},
 		&model.ClientInbound{},
 		&model.ClientHwid{},
 		&model.ClientExternalLink{},

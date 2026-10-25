@@ -1,3 +1,7 @@
+import BandwagonCard, {
+  useBandwagon,
+  ClientProviderUsage,
+} from '@/components/bandwagon/BandwagonCard';
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
@@ -383,6 +387,7 @@ export default function ClientsPage() {
   // Node list for the Nodes filter; the section only renders when the panel
   // actually manages nodes (#4997).
   const { nodes } = useNodesQuery();
+  const { data: providerStatus } = useBandwagon();
   // Tunnel configs advertise these Hosts, so an empty list must mean "no hosts"
   // and not "not loaded yet" — the page gate waits for it.
   const {
@@ -1189,6 +1194,19 @@ export default function ClientsPage() {
         ),
       },
       {
+        title: '周期流量 / 带宽占比',
+        key: 'providerUsage',
+        width: 290,
+        hidden: !providerStatus?.config.enabled,
+        render: (_v, record) => (
+          <ClientProviderUsage
+            status={providerStatus}
+            clientId={record.id ?? 0}
+            speed={clientSpeed[record.email]}
+          />
+        ),
+      },
+      {
         title: t('pages.clients.speed'),
         key: 'speed',
         width: SPEED_COLUMN_WIDTH,
@@ -1236,6 +1254,7 @@ export default function ClientsPage() {
       datepicker,
       trafficDiff,
       clientSpeed,
+      providerStatus,
     ],
   );
 
@@ -1323,6 +1342,9 @@ export default function ClientsPage() {
                 />
               ) : (
                 <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 12]}>
+                  <Col span={24}>
+                    <BandwagonCard />
+                  </Col>
                   <Col span={24}>
                     <Card size="small" hoverable className="summary-card">
                       <Row gutter={[16, 12]}>
@@ -1873,6 +1895,11 @@ export default function ClientsPage() {
                                     total={row.totalGB}
                                     enabled={row.enable}
                                     trafficDiff={trafficDiff}
+                                  />
+                                  <ClientProviderUsage
+                                    status={providerStatus}
+                                    clientId={row.id ?? 0}
+                                    speed={clientSpeed[row.email]}
                                   />
                                   {(() => {
                                     const speed = clientSpeed[row.email];

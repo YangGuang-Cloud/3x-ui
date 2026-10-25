@@ -1,3 +1,4 @@
+import BandwagonCard from '@/components/bandwagon/BandwagonCard';
 import { lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, ConfigProvider, Layout, Modal, Result, Spin, message } from 'antd';
@@ -172,6 +173,9 @@ export default function IndexPage() {
 
         <Layout className="content-shell">
           <Layout.Content className="content-area">
+            <div style={{ marginBottom: 16 }}>
+              <BandwagonCard />
+            </div>
             <Spin
               spinning={loading || !fetched}
               delay={200}
