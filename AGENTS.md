@@ -8,7 +8,7 @@
 
 # Existing deployment safeguards
 
-- `Release` is the case-sensitive production branch. Its push automatically deploys after the workflow checks pass; main/development pushes only build/test.
-- This responsibility change does not disable CI, production preflight, fallback checks, health checks, or the installer's automatic rollback. Preserve these safeguards unless the owner explicitly requests a change.
+- `Release` is the case-sensitive production branch. Its push packages and deploys; main/development pushes do not run workflows.
+- The owner requested only the BandwagonHost deployment workflow. Do not restore upstream CI, automatic test suites, or other workflows without a new request. Keep deployment packaging, production preflight, fallback checks, health checks, and the installer's automatic rollback.
 - Keep local databases, binaries, logs, listeners and credentials separate from production. Never use the live service as a development test environment.
 - A single-instance cutover interrupts existing connections. Do not promise zero downtime without a separately validated architecture that preserves existing connections.

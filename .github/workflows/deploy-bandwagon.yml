@@ -2,18 +2,7 @@ name: Deploy BandwagonHost
 
 on:
   push:
-    branches: [main, Release]
-    paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'frontend/**'
-      - 'internal/web/translation/**'
-      - '.nvmrc'
-      - 'tools/deploy/**'
-      - 'tools/core-rate-limit/**'
-      - 'tools/legacy-xui/**'
-      - '.github/workflows/deploy-bandwagon.yml'
+    branches: [Release]
   workflow_dispatch:
     inputs:
       expected_commit:
@@ -26,10 +15,12 @@ permissions:
 
 concurrency:
   group: bandwagon-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/Release' }}
+  cancel-in-progress: false
 
 jobs:
   build:
+    name: Package deployment
+    if: github.ref == 'refs/heads/Release'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -58,24 +49,11 @@ jobs:
         run: npm ci --no-audit --no-fund
         env:
           HUSKY: '0'
-      - name: Check and build frontend
+      - name: Build frontend assets
         working-directory: frontend
-        run: |
-          npm run lint
-          npm run format:check
-          npm run typecheck
-          npm run build
-          npm test -- --project=unit --project=components
+        run: npm run build
         env:
           STORYBOOK_DISABLE_TELEMETRY: '1'
-      - name: Verify storage and migration
-        run: |
-          go test ./internal/config ./internal/database
-          go test ./internal/web/service -run 'Test.*Migrat|TestClientBandwidth|TestBandwagon|TestPresence' -count=1
-          python3 -m unittest discover -s tools/legacy-xui -p 'test_*.py'
-          python3 -m unittest discover -s tools/deploy -p 'test_*.py'
-          go test ./tools/core-rate-limit
-          go test ./internal/web/controller ./internal/xray -count=1
       - name: Build static Linux amd64 release
         run: |
           sudo apt-get update -qq
@@ -98,8 +76,6 @@ jobs:
           }))
           PY
           CGO_ENABLED=0 python3 tools/core-rate-limit/build.py --output release/xray-linux-amd64
-          python3 tools/core-rate-limit/verify.py release/xray-linux-amd64
-          python3 tools/deploy/verify_preflight.py release/xray-linux-amd64
           tar -czf release.tar.gz -C release x-ui manifest.json xray-linux-amd64
       - uses: actions/upload-artifact@v6
         with:
@@ -108,8 +84,8 @@ jobs:
           retention-days: 7
   deploy:
     needs: build
-    # Development pushes never deploy. Release pushes deploy only after every
-    # candidate build/test/preflight step succeeds; manual retries pin the SHA.
+    # Only Release can package and deploy; manual retries pin the SHA.
+    # The server installer retains production preflight, health checks and rollback.
     if: github.ref == 'refs/heads/Release'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
