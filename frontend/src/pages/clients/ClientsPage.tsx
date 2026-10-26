@@ -23,6 +23,7 @@ import {
   Row,
   Select,
   Spin,
+  Space,
   Statistic,
   Switch,
   Table,
@@ -72,8 +73,7 @@ import type {
   ExternalLink,
   ExternalLinkInput,
 } from '@/hooks/useClients';
-import ClientTrafficCell from '@/components/clients/ClientTrafficCell';
-import ClientSpeedTag, { isActiveSpeed } from '@/components/clients/ClientSpeedTag';
+import ClientSpeedTag from '@/components/clients/ClientSpeedTag';
 import ClientCardComment from '@/components/clients/ClientCardComment';
 import AppSidebar from '@/layouts/AppSidebar';
 import { IntlUtil, SizeFormatter } from '@/utils';
@@ -1180,30 +1180,19 @@ export default function ClientsPage() {
         },
       },
       {
-        title: t('pages.clients.traffic'),
+        title: '流量',
         key: 'traffic',
-        width: 300,
+        width: 160,
         render: (_v, record) => (
-          <ClientTrafficCell
-            up={record.traffic?.up}
-            down={record.traffic?.down}
-            total={record.totalGB}
-            enabled={record.enable}
-            trafficDiff={trafficDiff}
-          />
+          <ClientProviderUsage metric="traffic" status={providerStatus} clientId={record.id ?? 0} />
         ),
       },
       {
-        title: '周期流量 / 带宽占比',
-        key: 'providerUsage',
-        width: 290,
-        hidden: !providerStatus?.config.enabled,
+        title: '流量占比',
+        key: 'trafficShare',
+        width: 130,
         render: (_v, record) => (
-          <ClientProviderUsage
-            status={providerStatus}
-            clientId={record.id ?? 0}
-            speed={clientSpeed[record.email]}
-          />
+          <ClientProviderUsage metric="share" status={providerStatus} clientId={record.id ?? 0} />
         ),
       },
       {
@@ -1213,7 +1202,7 @@ export default function ClientsPage() {
         align: 'center',
         render: (_v, record) => {
           const speed = clientSpeed[record.email];
-          if (!isActiveSpeed(speed)) {
+          if (!speed) {
             return (
               <Tag color="default" className={SPEED_TAG_CLASS_NAME} style={SPEED_TAG_STYLE}>
                 —
@@ -1222,6 +1211,19 @@ export default function ClientsPage() {
           }
           return <ClientSpeedTag speed={speed} tableCell />;
         },
+      },
+      {
+        title: '带宽占用率',
+        key: 'bandwidthShare',
+        width: 200,
+        render: (_v, record) => (
+          <ClientProviderUsage
+            metric="bandwidth"
+            status={providerStatus}
+            clientId={record.id ?? 0}
+            speed={clientSpeed[record.email]}
+          />
+        ),
       },
       {
         title: t('pages.clients.remaining'),
@@ -1590,7 +1592,7 @@ export default function ClientsPage() {
                           }}
                           options={SORT_OPTIONS.map((o) => ({
                             value: o.value,
-                            label: t(o.labelKey),
+                            label: o.column === 'traffic' ? '配额累计用量最多' : t(o.labelKey),
                           }))}
                         />
                         {activeCount > 0 && (
@@ -1888,28 +1890,41 @@ export default function ClientsPage() {
                                     </div>
                                   </div>
                                   <ClientCardComment comment={row.comment} />
-                                  <ClientTrafficCell
-                                    compact
-                                    up={row.traffic?.up}
-                                    down={row.traffic?.down}
-                                    total={row.totalGB}
-                                    enabled={row.enable}
-                                    trafficDiff={trafficDiff}
-                                  />
-                                  <ClientProviderUsage
-                                    status={providerStatus}
-                                    clientId={row.id ?? 0}
-                                    speed={clientSpeed[row.email]}
-                                  />
-                                  {(() => {
-                                    const speed = clientSpeed[row.email];
-                                    if (!isActiveSpeed(speed)) return null;
-                                    return (
-                                      <div className="client-card-speed">
-                                        <ClientSpeedTag speed={speed} />
-                                      </div>
-                                    );
-                                  })()}
+                                  <Space orientation="vertical" size={4}>
+                                    <div>
+                                      流量：
+                                      <ClientProviderUsage
+                                        metric="traffic"
+                                        status={providerStatus}
+                                        clientId={row.id ?? 0}
+                                      />
+                                    </div>
+                                    <div>
+                                      流量占比：
+                                      <ClientProviderUsage
+                                        metric="share"
+                                        status={providerStatus}
+                                        clientId={row.id ?? 0}
+                                      />
+                                    </div>
+                                    <div>
+                                      {t('pages.clients.speed')}：
+                                      {clientSpeed[row.email] ? (
+                                        <ClientSpeedTag speed={clientSpeed[row.email]} />
+                                      ) : (
+                                        '—'
+                                      )}
+                                    </div>
+                                    <div>
+                                      带宽占用率：
+                                      <ClientProviderUsage
+                                        metric="bandwidth"
+                                        status={providerStatus}
+                                        clientId={row.id ?? 0}
+                                        speed={clientSpeed[row.email]}
+                                      />
+                                    </div>
+                                  </Space>
                                 </div>
                               );
                             })}

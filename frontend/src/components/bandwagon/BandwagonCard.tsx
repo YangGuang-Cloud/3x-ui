@@ -16,6 +16,7 @@ import {
   Statistic,
   Switch,
   Typography,
+  Tooltip,
 } from 'antd';
 import { HttpUtil, SizeFormatter } from '@/utils';
 
@@ -70,28 +71,40 @@ export function ClientProviderUsage({
   status,
   clientId,
   speed,
+  metric,
 }: {
   status?: ProviderStatus;
   clientId: number;
   speed?: { up: number; down: number };
+  metric: 'traffic' | 'share' | 'bandwidth';
 }) {
+  if (metric === 'bandwidth') {
+    return (
+      <Tooltip title="实时上传 / 下载速率 ÷ 对应的标称带宽；未设置标称带宽时显示 —">
+        <span>
+          ↑ {percentText(speed ? speedPercent(speed.up, status?.config.uploadMbps || 0) : null)}
+          {' / '}↓{' '}
+          {percentText(speed ? speedPercent(speed.down, status?.config.downloadMbps || 0) : null)}
+        </span>
+      </Tooltip>
+    );
+  }
   if (!status?.config.enabled || !status.cycle) return <span>—</span>;
   const row = status.clients.find((c) => c.clientId === clientId);
   const used = (row?.up || 0) + (row?.down || 0);
+  if (metric === 'share') {
+    return (
+      <Tooltip title="该客户端的周期流量 ÷ 搬瓦工套餐流量额度">
+        <span>{percentText(usagePercent(used, status.cycle.quota))}</span>
+      </Tooltip>
+    );
+  }
   return (
-    <Space orientation="vertical" size={0}>
-      <span>
-        {SizeFormatter.sizeFormat(used)} · 套餐{' '}
-        {percentText(usagePercent(used, status.cycle.quota))}
-      </span>
-      <Typography.Text type="secondary">
-        客户端内占比 {percentText(usagePercent(used, status.total))}
-      </Typography.Text>
-      <Typography.Text type="secondary">
-        标称带宽 ↑ {percentText(speed ? speedPercent(speed.up, status.config.uploadMbps) : null)} /
-        ↓ {percentText(speed ? speedPercent(speed.down, status.config.downloadMbps) : null)}
-      </Typography.Text>
-    </Space>
+    <Tooltip
+      title={`上传 ${SizeFormatter.sizeFormat(row?.up || 0)} / 下载 ${SizeFormatter.sizeFormat(row?.down || 0)}`}
+    >
+      <span>{SizeFormatter.sizeFormat(used)}</span>
+    </Tooltip>
   );
 }
 
@@ -220,9 +233,6 @@ export default function BandwagonCard() {
               下次重置：{date(cycle.nextReset)} · 同步时间：{date(cycle.updatedAt)}
             </Typography.Text>
             <Typography.Text type="secondary">
-              {cycle.partial
-                ? `本周期仅统计接入以来（${date(cycle.start)}）的本机客户端流量。`
-                : '本地客户端统计已随搬瓦工账期自动重新计数。'}{' '}
               供应商总量包含其他业务与协议开销；客户端占比为估算。统计按分钟归属，不改变客户端配额。
             </Typography.Text>
             <Typography.Text type="secondary">
