@@ -438,6 +438,41 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'GET',
+        path: '/panel/api/bandwagon',
+        summary:
+          'Read provider cycle usage, per-client ledger and bandwidth settings. API keys are never returned.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/bandwagon/config',
+        summary:
+          'Save BandwagonHost statistics settings. An omitted API key preserves the stored key when VEID is unchanged. This does not reset client quota counters.',
+        params: [
+          { name: 'enabled', in: 'body (json)', type: 'boolean' },
+          { name: 'veid', in: 'body (json)', type: 'string' },
+          { name: 'apiKey', in: 'body (json)', type: 'string', optional: true },
+          {
+            name: 'uploadMbps',
+            in: 'body (json)',
+            type: 'number',
+            desc: 'Reference upload capacity; zero means unknown.',
+          },
+          {
+            name: 'downloadMbps',
+            in: 'body (json)',
+            type: 'number',
+            desc: 'Reference download capacity; zero means unknown.',
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/bandwagon/sync',
+        summary:
+          'Synchronize provider usage and billing-cycle state, then return the updated statistics.',
+      },
+      {
+        method: 'GET',
         path: '/panel/api/server/status',
         summary:
           'Real-time machine snapshot: CPU, memory, swap, disk, network IO, load averages, open connections, Xray state. Cached and refreshed every 2 seconds in the background.',

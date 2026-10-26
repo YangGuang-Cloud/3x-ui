@@ -113,7 +113,7 @@ func mustBandwagonStatus(t *testing.T) BandwagonStatus {
 func TestBandwagonReadOnlyHTTPAndValidation(t *testing.T) {
 	response := `{"error":0,"plan_monthly_data":100,"data_counter":10,"monthly_data_multiplier":0.5,"data_next_reset":2000000000}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" || r.URL.RawQuery != "" {
+		if r.Method != http.MethodPost || r.URL.RawQuery != "" {
 			t.Error("credentials must be POST body")
 		}
 		r.ParseForm()

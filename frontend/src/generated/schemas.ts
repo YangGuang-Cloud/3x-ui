@@ -2167,6 +2167,9 @@ export const SCHEMAS: Record<string, unknown> = {
         "example": "staff",
         "type": "string"
       },
+      "id": {
+        "type": "integer"
+      },
       "inboundIds": {
         "example": [
           3,
@@ -2229,6 +2232,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "email",
       "enable",
       "expiryTime",
+      "id",
       "inboundIds",
       "limitHwid",
       "limitIp",
