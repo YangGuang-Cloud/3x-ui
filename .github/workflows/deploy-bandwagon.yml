@@ -2,11 +2,11 @@ name: Deploy BandwagonHost
 
 on:
   push:
-    branches: [Release]
+    branches: [release]
   workflow_dispatch:
     inputs:
       expected_commit:
-        description: 'Exact 40-character Release commit SHA for a manual rerun'
+        description: 'Exact 40-character release commit SHA for a manual rerun'
         required: true
         type: string
 
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   build:
     name: Package deployment
-    if: github.ref == 'refs/heads/Release'
+    if: github.ref == 'refs/heads/release'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -33,7 +33,7 @@ jobs:
           EXPECTED_COMMIT: ${{ inputs.expected_commit }}
         run: |
           [[ "$EXPECTED_COMMIT" =~ ^[a-f0-9]{40}$ ]] && [[ "$EXPECTED_COMMIT" == "$GITHUB_SHA" ]] || {
-            echo 'Manual dispatch must name the exact selected Release commit.'
+            echo 'Manual dispatch must name the exact selected release commit.'
             exit 1
           }
       - uses: actions/setup-go@v7
@@ -84,9 +84,9 @@ jobs:
           retention-days: 7
   deploy:
     needs: build
-    # Only Release can package and deploy; manual retries pin the SHA.
+    # Only release can package and deploy; manual retries pin the SHA.
     # The server installer retains production preflight, health checks and rollback.
-    if: github.ref == 'refs/heads/Release'
+    if: github.ref == 'refs/heads/release'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: production

@@ -3,16 +3,16 @@ Managed 3x-ui deployment
 Workflow: .github/workflows/deploy-bandwagon.yml
 Target: the managed Ubuntu 20.04 amd64 installation of 3x-ui.
 Only the BandwagonHost workflow is retained. Main/development pushes do not run workflows.
-Release pushes compile/package and automatically deploy, without a manual environment approval.
-Manual reruns must select Release and provide expected_commit equal to its full SHA.
+release pushes compile/package and automatically deploy, without a manual environment approval.
+Manual reruns must select release and provide expected_commit equal to its full SHA.
 Both packaging and deployment jobs reject other branches.
-The owner performs local acceptance, manually merges/pushes Release, and verifies production.
+The owner performs local acceptance, manually merges/pushes release, and verifies production.
 The assistant develops code only by default; it does not independently validate, promote, deploy,
 monitor deployment runs, or check production. Troubleshooting starts when the owner requests it.
 Automatic lint, typecheck and test-suite steps have been removed at the owner's request.
 Frontend asset compilation and static Linux panel/core compilation remain necessary to deploy.
 Production preflight, fallback checks, health checks and automatic rollback remain in the server installer.
-Release runs are queued without cancelling an ongoing deployment.
+release runs are queued without cancelling an ongoing deployment.
 The archive contains the panel, manifest and the SorvoRateV1 bandwidth-aware core built from
 the pinned Xray 26.10.10 source. Panel and core switch and roll back together. Protocol/version
 upgrades still require separate compatibility validation. See tools/core-rate-limit/README.txt.
@@ -21,8 +21,8 @@ Production environment:
 DEPLOY_HOST variable: server host/IP.
 DEPLOY_SSH_KEY secret: Base64 of a dedicated deployment-only Ed25519 private key.
 DEPLOY_KNOWN_HOSTS secret: server host key verified through the trusted console.
-Restrict the production environment deployment branch to Release.
-No required reviewers or wait timer are configured. Branch restriction to Release and server preflight
+Restrict the production environment deployment branch to release.
+No required reviewers or wait timer are configured. Branch restriction to release and server preflight
 remain release gates; do not re-enable main deployment.
 The deployment account xui-deploy uploads into /var/lib/xui-deploy/incoming.
 Its only sudo entry is /usr/local/sbin/3x-ui-deploy with a strictly validated 40-character commit ID.
@@ -58,7 +58,7 @@ then checks real traffic again. An unhealthy rollback is an explicit deployment 
 recovery, never reported as a successful rollback. This does not validate the whole candidate panel
 in an isolated database, nor the public nginx/Cloudflare path; those still require candidate-specific
 review and external client verification.
-Deployments interrupt existing connections briefly. Releases and backups are kept for recovery;
+Deployments interrupt existing connections briefly. releases and backups are kept for recovery;
 a retention policy must be added before long-term unattended use fills the disk.
 
 Independent fallback is installed as xray-fallback.service on TCP 24444. Immediately before
