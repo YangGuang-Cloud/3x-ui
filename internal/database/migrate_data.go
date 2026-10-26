@@ -50,6 +50,7 @@ func migrationModels() []any {
 		&model.ClientBandwidth{},
 		&model.BandwagonCycle{},
 		&model.BandwagonTraffic{},
+		&model.BandwagonQuotaBlock{},
 		&model.ClientInbound{},
 		&model.ClientHwid{},
 		&model.ClientExternalLink{},

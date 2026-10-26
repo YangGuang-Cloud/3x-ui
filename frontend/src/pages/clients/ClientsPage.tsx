@@ -594,7 +594,7 @@ export default function ClientsPage() {
     (row: ClientRecord | null | undefined): Bucket | null => {
       if (!row) return null;
       const traffic = row.traffic || {};
-      const used = (traffic.up || 0) + (traffic.down || 0);
+      const used = row.quotaUsed ?? (traffic.up || 0) + (traffic.down || 0);
       const total = row.totalGB || 0;
       const now = Date.now();
       const expired = (row.expiryTime ?? 0) > 0 && (row.expiryTime ?? 0) <= now;
@@ -636,7 +636,7 @@ export default function ClientsPage() {
   function remainingLabel(row: ClientRecord) {
     const total = row.totalGB || 0;
     if (total <= 0) return '∞';
-    const used = (row.traffic?.up || 0) + (row.traffic?.down || 0);
+    const used = row.quotaUsed ?? (row.traffic?.up || 0) + (row.traffic?.down || 0);
     const r = total - used;
     return r > 0 ? SizeFormatter.sizeFormat(r) : '0';
   }
@@ -644,7 +644,7 @@ export default function ClientsPage() {
   function remainingColor(row: ClientRecord): string {
     const total = row.totalGB || 0;
     if (total <= 0) return 'purple';
-    const used = (row.traffic?.up || 0) + (row.traffic?.down || 0);
+    const used = row.quotaUsed ?? (row.traffic?.up || 0) + (row.traffic?.down || 0);
     const ratio = used / total;
     if (ratio >= 1) return 'red';
     if (ratio >= 0.85) return 'orange';
@@ -1592,7 +1592,7 @@ export default function ClientsPage() {
                           }}
                           options={SORT_OPTIONS.map((o) => ({
                             value: o.value,
-                            label: o.column === 'traffic' ? '配额累计用量最多' : t(o.labelKey),
+                            label: o.column === 'traffic' ? '配额用量最多' : t(o.labelKey),
                           }))}
                         />
                         {activeCount > 0 && (

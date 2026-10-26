@@ -19,6 +19,7 @@ import (
 // so the list payload stays compact even when the panel manages thousands
 // of clients. Modals that need the full record still call /get/:email.
 type ClientSlim struct {
+	QuotaUsed    *int64              `json:"quotaUsed,omitempty"`
 	ID           int                 `json:"id"`
 	Email        string              `json:"email" example:"alice@example.com"`
 	SubID        string              `json:"subId" example:"abcd1234"`
@@ -192,7 +193,7 @@ func newClientQuery(db *gorm.DB, nowMs, expireDiffMs, trafficDiffBytes int64) cl
 		Where("updated_at >= ?", freshSince).
 		Limit(1).Count(&probe).Error
 	if err != nil || probe == 0 {
-		return q
+		return withBandwagonQuotaQuery(q)
 	}
 	// A master still pushes cross-panel usage here, so the predicates have to
 	// see the same raised counters overlayGlobalTraffic applies on read.
@@ -203,7 +204,7 @@ func newClientQuery(db *gorm.DB, nowMs, expireDiffMs, trafficDiffBytes int64) cl
 	})
 	q.usedExpr = "(CASE WHEN COALESCE(g.up, 0) > COALESCE(ct.up, 0) THEN COALESCE(g.up, 0) ELSE COALESCE(ct.up, 0) END" +
 		" + CASE WHEN COALESCE(g.down, 0) > COALESCE(ct.down, 0) THEN COALESCE(g.down, 0) ELSE COALESCE(ct.down, 0) END)"
-	return q
+	return withBandwagonQuotaQuery(q)
 }
 
 func (q clientQuery) from() *gorm.DB {
@@ -503,6 +504,29 @@ func (q clientQuery) pageRows(params ClientPageParams, onlines []string, offset,
 			Traffic:      trafficByEmail[rec.Email],
 		}))
 	}
+	cycle, err := bandwagonQuotaCycle(q.db)
+	if err != nil {
+		return nil, err
+	}
+	if cycle != nil {
+		type usage struct {
+			ID   int
+			Used int64
+		}
+		var values []usage
+		if err := q.db.Table("clients c").Select("c.id, "+bandwagonUsedSQL(cycle, "c.id")+" AS used").Where("c.id IN ?", ids).Where(bandwagonLocalClientSQL("c.id")).Scan(&values).Error; err != nil {
+			return nil, err
+		}
+		byID := make(map[int]int64, len(values))
+		for _, v := range values {
+			byID[v.ID] = v.Used
+		}
+		for i := range items {
+			if used, ok := byID[items[i].ID]; ok {
+				items[i].QuotaUsed = &used
+			}
+		}
+	}
 	return items, nil
 }
 
@@ -736,4 +760,17 @@ func parseCSVInts(raw string) []int {
 		return nil
 	}
 	return out
+}
+
+func withBandwagonQuotaQuery(q clientQuery) clientQuery {
+	cycle, err := bandwagonQuotaCycle(q.db)
+	if err != nil {
+		q.db = q.db.Session(&gorm.Session{})
+		_ = q.db.AddError(err)
+		return q
+	}
+	if cycle != nil {
+		q.usedExpr = "(CASE WHEN " + bandwagonLocalClientSQL("c.id") + " THEN " + bandwagonUsedSQL(cycle, "c.id") + " ELSE " + q.usedExpr + " END)"
+	}
+	return q
 }

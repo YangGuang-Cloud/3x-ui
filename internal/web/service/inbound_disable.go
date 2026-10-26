@@ -80,6 +80,17 @@ func depletedCond(tx *gorm.DB) (string, []any) {
 func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *trafficMutationBatch) (bool, int64, []int, error) {
 	now := time.Now().UnixMilli()
 	cond, condArgs := depletedCond(tx)
+	cycle, cycleErr := bandwagonQuotaCycle(tx)
+	if cycleErr != nil {
+		return false, 0, nil, cycleErr
+	}
+	if cycle != nil {
+		managed := "EXISTS (SELECT 1 FROM clients bc WHERE bc.email = client_traffics.email AND " + bandwagonLocalClientSQL("bc.id") + ")"
+		// Quota enforcement for these clients runs through the independent cycle gate.
+		cond = "((" + cond + ") AND NOT (" + managed + ")) OR (" + managed + " AND expiry_time > 0 AND expiry_time <= ?)"
+		cond = "(" + cond + ")"
+		condArgs = append(condArgs, now)
+	}
 
 	var depletedRows []xray.ClientTraffic
 	err := tx.Model(xray.ClientTraffic{}).

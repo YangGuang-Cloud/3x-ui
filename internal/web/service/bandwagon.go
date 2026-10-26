@@ -242,44 +242,48 @@ func applyBandwagonSnapshot(db *gorm.DB, veid string, r bandwagonResponse, now i
 	})
 }
 
-// Runs after primary accounting commits. Provider/network failures can never
-// roll back client quota counters, restart Xray or disable clients.
-func recordBandwagonTraffic(traffics []*xray.ClientTraffic) {
+// Ledger and legacy counters commit together, so a failed ledger write cannot
+// silently grant extra quota or count a retried Xray delta twice.
+func recordBandwagonTrafficTx(tx *gorm.DB, traffics []*xray.ClientTraffic) error {
 	if len(traffics) == 0 {
-		return
+		return nil
 	}
 	c, e := loadBandwagonConfig()
-	if e != nil || !c.Enabled {
-		return
+	if e != nil {
+		return e
 	}
-	e = database.GetDB().Transaction(func(tx *gorm.DB) error {
-		canonical, e := canonicalizeClientTraffic(tx, traffics)
+	if !c.Enabled {
+		return nil
+	}
+	canonical, e := canonicalizeClientTraffic(tx, traffics)
+	if e != nil {
+		return e
+	}
+	minute := time.Now().Unix() / 60 * 60
+	for _, t := range canonical {
+		up, down := max(t.Up, 0), max(t.Down, 0)
+		if up == 0 && down == 0 {
+			continue
+		}
+		var client model.ClientRecord
+		e = tx.Select("id").Where("email = ?", t.Email).Take(&client).Error
+		if errors.Is(e, gorm.ErrRecordNotFound) {
+			continue
+		}
 		if e != nil {
 			return e
 		}
-		minute := time.Now().Unix() / 60 * 60
-		for _, t := range canonical {
-			up, down := max(t.Up, 0), max(t.Down, 0)
-			if up == 0 && down == 0 {
-				continue
-			}
-			var client model.ClientRecord
-			e = tx.Select("id").Where("email = ?", t.Email).Take(&client).Error
-			if errors.Is(e, gorm.ErrRecordNotFound) {
-				continue
-			}
-			if e != nil {
-				return e
-			}
-			row := model.BandwagonTraffic{VEID: c.VEID, ClientID: client.Id, Minute: minute, Up: up, Down: down}
-			if e = tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "ve_id"}, {Name: "client_id"}, {Name: "minute"}}, DoUpdates: clause.Assignments(map[string]any{"up": gorm.Expr("bandwagon_traffics.up + ?", up), "down": gorm.Expr("bandwagon_traffics.down + ?", down)})}).Create(&row).Error; e != nil {
-				return e
-			}
+		row := model.BandwagonTraffic{VEID: c.VEID, ClientID: client.Id, Minute: minute, Up: up, Down: down}
+		if e = tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "ve_id"}, {Name: "client_id"}, {Name: "minute"}}, DoUpdates: clause.Assignments(map[string]any{"up": gorm.Expr("bandwagon_traffics.up + ?", up), "down": gorm.Expr("bandwagon_traffics.down + ?", down)})}).Create(&row).Error; e != nil {
+			return e
 		}
-		return nil
-	})
-	if e != nil {
-		logger.Warning("Provider usage ledger write failed; primary quota accounting was preserved")
+	}
+	return nil
+}
+
+func recordBandwagonTraffic(traffics []*xray.ClientTraffic) {
+	if e := database.GetDB().Transaction(func(tx *gorm.DB) error { return recordBandwagonTrafficTx(tx, traffics) }); e != nil {
+		logger.Warning("Provider ledger write failed")
 		bandwagonMu.Lock()
 		bandwagonAccountingError = "本地周期统计曾写入失败，统计可能不完整"
 		bandwagonMu.Unlock()

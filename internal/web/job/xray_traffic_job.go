@@ -15,6 +15,7 @@ import (
 
 // XrayTrafficJob collects and processes traffic statistics from Xray, updating the database and optionally informing external APIs.
 type XrayTrafficJob struct {
+	accountingRetry trafficAccountingRetry
 	settingService  service.SettingService
 	xrayService     service.XrayService
 	inboundService  service.InboundService
@@ -79,7 +80,7 @@ func (j *XrayTrafficJob) Run() {
 	if err != nil {
 		return
 	}
-	needRestart0, clientsDisabled, err := j.inboundService.AddTraffic(traffics, clientTraffics)
+	needRestart0, clientsDisabled, err := j.accountingRetry.commit(traffics, clientTraffics, j.inboundService.AddTraffic)
 	if err != nil {
 		logger.Warning("add inbound traffic failed:", err)
 	}

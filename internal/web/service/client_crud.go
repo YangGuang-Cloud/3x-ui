@@ -132,7 +132,16 @@ func (c ClientResetCycle) Depleted() bool {
 // period, independent of the cycle configured on the inbounds they belong to.
 func (s *ClientService) GetClientsByTrafficReset(period string) ([]ClientResetCycle, error) {
 	var cycles []ClientResetCycle
-	err := database.GetDB().Table("clients c").
+	db := database.GetDB()
+	cycle, err := bandwagonQuotaCycle(db)
+	if err != nil {
+		return nil, err
+	}
+	query := db.Table("clients c")
+	if cycle != nil {
+		query = query.Where("NOT (" + bandwagonLocalClientSQL("c.id") + ")")
+	}
+	err = query.
 		Select("c.email, c.traffic_reset_day, c.enable, COALESCE(ct.total, 0) AS total, COALESCE(ct.up, 0) + COALESCE(ct.down, 0) AS used").
 		Joins("LEFT JOIN client_traffics ct ON ct.email = c.email").
 		Where("c.traffic_reset = ?", period).

@@ -12,7 +12,8 @@ import (
 // per-client traffic scraped from each mtg /stats endpoint into the usual client
 // and inbound traffic accounting.
 type MtprotoJob struct {
-	inboundService service.InboundService
+	accountingRetry trafficAccountingRetry
+	inboundService  service.InboundService
 }
 
 // NewMtprotoJob creates a new mtproto reconcile/traffic job instance.
@@ -71,8 +72,8 @@ func (j *MtprotoJob) Run() {
 		})
 	}
 
-	if len(traffics) > 0 || len(clientTraffics) > 0 {
-		if _, _, err := j.inboundService.AddTraffic(traffics, clientTraffics); err != nil {
+	{
+		if _, _, err := j.accountingRetry.commit(traffics, clientTraffics, j.inboundService.AddTraffic); err != nil {
 			logger.Warning("mtproto job: add traffic failed:", err)
 		}
 	}

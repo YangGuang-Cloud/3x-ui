@@ -1,6 +1,6 @@
 package model
 
-// BandwagonCycle is a provider-confirmed accounting window, separate from quotas.
+// BandwagonCycle is a provider-confirmed accounting window, used by local client quotas.
 type BandwagonCycle struct {
 	ID            uint    `gorm:"primaryKey" json:"id"`
 	VEID          string  `gorm:"index:idx_bwg_cycle,unique" json:"-"`
@@ -21,4 +21,10 @@ type BandwagonTraffic struct {
 	Minute   int64  `gorm:"primaryKey;autoIncrement:false;index:idx_bwg_service_time"`
 	Up       int64
 	Down     int64
+}
+
+// BandwagonQuotaBlock distinguishes an automatic cycle quota gate from manual disable.
+type BandwagonQuotaBlock struct {
+	ClientID int `gorm:"primaryKey;autoIncrement:false"`
+	CycleID  uint
 }

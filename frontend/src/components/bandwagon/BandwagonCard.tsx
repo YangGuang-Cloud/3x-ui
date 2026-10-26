@@ -233,7 +233,7 @@ export default function BandwagonCard() {
               下次重置：{date(cycle.nextReset)} · 同步时间：{date(cycle.updatedAt)}
             </Typography.Text>
             <Typography.Text type="secondary">
-              供应商总量包含其他业务与协议开销；客户端占比为估算。统计按分钟归属，不改变客户端配额。
+              供应商总量包含其他业务与协议开销；客户端占比为估算。本机客户端配额按同一账期用量计算。
             </Typography.Text>
             <Typography.Text type="secondary">
               客户端上传标称上限：{data.config.uploadMbps || '未设置'} Mbps · 客户端下载标称上限：
@@ -298,7 +298,7 @@ export default function BandwagonCard() {
           </Form.Item>
           <Alert
             type="info"
-            title="每 5 分钟读取一次供应商数据；确认账期变化后自动切换周期统计，保留历史，不清空客户端配额计数。"
+            title="每 5 分钟读取一次供应商数据；确认账期变化后自动切换周期统计，保留历史，本机客户端配额随确认的新账期恢复。"
           />
         </Form>
       </Modal>

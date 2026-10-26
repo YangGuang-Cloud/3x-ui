@@ -165,7 +165,7 @@ func TestBandwagonSlimCarriesStableIdentity(t *testing.T) {
 	}
 }
 
-func TestBandwagonLedgerFailureDoesNotLosePrimaryTraffic(t *testing.T) {
+func TestBandwagonLedgerFailureRollsBackBothCountersForRetry(t *testing.T) {
 	setupBulkDB(t)
 	db := database.GetDB()
 	SaveBandwagonConfig(BandwagonConfig{Enabled: true, VEID: "1", APIKey: "secret"})
@@ -175,12 +175,24 @@ func TestBandwagonLedgerFailureDoesNotLosePrimaryTraffic(t *testing.T) {
 	db.Create(&xray.ClientTraffic{Email: "a", Enable: true})
 	db.Migrator().DropTable(&model.BandwagonTraffic{})
 	_, _, err := (&InboundService{}).AddTraffic(nil, []*xray.ClientTraffic{{Email: "a", Up: 500, Down: 700}})
-	if err != nil {
-		t.Fatal("optional ledger blocked primary accounting", err)
+	if err == nil {
+		t.Fatal("ledger failure must return an accounting error")
 	}
 	var row xray.ClientTraffic
 	db.Where("email = ?", "a").First(&row)
-	if row.Up != 500 || row.Down != 700 {
-		t.Fatal("primary traffic was lost", row)
+	if row.Up != 0 || row.Down != 0 {
+		t.Fatal("partial accounting commit", row)
+	}
+	if err := db.AutoMigrate(&model.BandwagonTraffic{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := (&InboundService{}).AddTraffic(nil, []*xray.ClientTraffic{{Email: "a", Up: 500, Down: 700}}); err != nil {
+		t.Fatal(err)
+	}
+	db.Where("email = ?", "a").First(&row)
+	var ledger model.BandwagonTraffic
+	db.First(&ledger)
+	if row.Up != 500 || row.Down != 700 || ledger.Up != 500 || ledger.Down != 700 {
+		t.Fatal("retry did not preserve identical counters", row, ledger)
 	}
 }

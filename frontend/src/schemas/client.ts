@@ -32,6 +32,7 @@ export const ClientRecordSchema = z
     flow: z.string().optional(),
     security: z.string().optional(),
     totalGB: z.number().optional(),
+    quotaUsed: z.number().optional(),
     expiryTime: z.number().optional(),
     limitIp: z.number().optional(),
     limitHwid: z.number().optional(),

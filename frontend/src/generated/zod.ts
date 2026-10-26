@@ -554,6 +554,7 @@ export const ClientSlimSchema = z.object({
   inboundIds: z.array(z.number().int()),
   limitHwid: z.number().int(),
   limitIp: z.number().int(),
+  quotaUsed: z.number().int().nullable().optional(),
   reset: z.number().int(),
   resetDay: z.number().int(),
   resetMax: z.number().int(),

@@ -526,6 +526,7 @@ export interface ClientSlim {
   inboundIds: number[];
   limitHwid: number;
   limitIp: number;
+  quotaUsed?: number | null;
   reset: number;
   resetDay: number;
   resetMax: number;

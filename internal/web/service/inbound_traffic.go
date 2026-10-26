@@ -54,12 +54,13 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		if err := s.addInboundTraffic(tx, inboundTraffics); err != nil {
 			return err
 		}
-		return s.addClientTraffic(tx, clientTraffics)
+		if err := s.addClientTraffic(tx, clientTraffics); err != nil {
+			return err
+		}
+		return recordBandwagonTrafficTx(tx, clientTraffics)
 	}); err != nil {
 		return false, false, nil, nil, nil, err
 	}
-
-	recordBandwagonTraffic(clientTraffics)
 
 	var (
 		needRestart          bool
@@ -75,6 +76,10 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		}
 		if count > 0 {
 			logger.Debugf("%v clients renewed", count)
+		}
+
+		if err := s.reconcileBandwagonQuotas(tx, batch); err != nil {
+			return err
 		}
 
 		needRestart1, count, nodeIDs, err := s.disableInvalidClients(tx, batch)
@@ -98,6 +103,11 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		}
 		needRestart = needRestart0 || needRestart1 || needRestart2
 		clientsDisabled = disabledClientsCount > 0
+		for _, plan := range batch.localPlans {
+			if plan.action == trafficRemoveUser {
+				clientsDisabled = true
+			}
+		}
 		disabledNodeIDs = nodeIDs
 		return nil
 	})
@@ -905,7 +915,10 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 		// Collect depleted emails globally — a shared-email row owned by one
 		// inbound depletes every sibling that lists the email.
 		now := time.Now().Unix() * 1000
-		depletedClause := depletedClientsClause
+		depletedClause, err := cycleSafePurgeClause(tx)
+		if err != nil {
+			return err
+		}
 		var depletedRows []xray.ClientTraffic
 		if err := tx.Model(xray.ClientTraffic{}).
 			Where(depletedClause, now).

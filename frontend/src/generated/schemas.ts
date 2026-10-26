@@ -2188,6 +2188,11 @@ export const SCHEMAS: Record<string, unknown> = {
         "example": 0,
         "type": "integer"
       },
+      "quotaUsed": {
+        "format": "int64",
+        "nullable": true,
+        "type": "integer"
+      },
       "reset": {
         "example": 0,
         "type": "integer"
