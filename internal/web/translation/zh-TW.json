@@ -752,7 +752,6 @@
       "advancedTitle": "進階設定"
     },
     "clients": {
-      "bandwidthTitle": "用戶端限速",
       "bandwidthUpload": "上傳限速",
       "bandwidthDownload": "下載限速",
       "bandwidthHelp": "0 means unlimited. Mbps = megabits/s (8 Mbps = 1 MB/s). All local VLESS connections of this account share these limits. Saving reconnects local nodes briefly.",

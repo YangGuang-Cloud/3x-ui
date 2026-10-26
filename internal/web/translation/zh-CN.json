@@ -752,7 +752,6 @@
       "advancedTitle": "高级设置"
     },
     "clients": {
-      "bandwidthTitle": "客户端限速",
       "bandwidthUpload": "上传限速",
       "bandwidthDownload": "下载限速",
       "bandwidthHelp": "0 表示不限速。单位 Mbps（8 Mbps = 1 MB/s）。此账号在本机所有 VLESS 连接共享限速额度。保存后本机节点会短暂重连。",
