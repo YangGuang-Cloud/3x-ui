@@ -38,13 +38,12 @@ func GreatestExpr(a, b string) string {
 }
 
 // ClientTrafficEnableMergeExpr: placeholders nodeEnable, nodeExpiry, nodeTotal,
-// now, deltaUp, deltaDown. Mirrors nodeDisableIsStale (#6228 / #4917).
+// deltaUp, deltaDown. Mirrors nodeDisableIsStale (#6228 / #4917).
 func ClientTrafficEnableMergeExpr() string {
 	if IsPostgres() {
 		return `CASE
 			WHEN ?::boolean THEN enable::boolean
 			WHEN (expiry_time <> CAST(? AS BIGINT) OR total <> CAST(? AS BIGINT))
-				AND (expiry_time <= 0 OR expiry_time > CAST(? AS BIGINT))
 				AND (total <= 0 OR up + ? + down + ? < total) THEN enable::boolean
 			ELSE false
 		END`
@@ -52,7 +51,6 @@ func ClientTrafficEnableMergeExpr() string {
 	return `CASE
 		WHEN ? THEN enable
 		WHEN (expiry_time <> CAST(? AS BIGINT) OR total <> CAST(? AS BIGINT))
-			AND (expiry_time <= 0 OR expiry_time > CAST(? AS BIGINT))
 			AND (total <= 0 OR up + ? + down + ? < total) THEN enable
 		ELSE 0
 	END`

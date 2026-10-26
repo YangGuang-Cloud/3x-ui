@@ -1,9 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Divider, Modal, Space, Tabs, Tag, Tooltip } from 'antd';
 import { CopyOutlined, SyncOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
 
-import { HttpUtil, IntlUtil, SizeFormatter, ColorUtils, Wireguard } from '@/utils';
+import { HttpUtil, IntlUtil, SizeFormatter, Wireguard } from '@/utils';
 import { activateOnKey } from '@/utils/a11y';
 import { Protocols } from '@/schemas/primitives';
 import { InfinityIcon } from '@/components/ui';
@@ -38,7 +38,6 @@ export default function InboundInfoModal({
   onClose,
   dbInbound,
   clientIndex = 0,
-  expireDiff = 0,
   trafficDiff = 0,
   ipLimitEnable = false,
   tgBotEnable = false,
@@ -250,15 +249,6 @@ export default function InboundInfoModal({
     }
   }
 
-  // The expiry tag colours against the current time; a state-backed clock keeps
-  // render pure and still refreshes the tag while the modal stays open.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!open) return;
-    const id = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(id);
-  }, [open]);
-
   const isEnable = useMemo(() => {
     if (clientSettings) return !!clientSettings.enable;
     return dbInbound?.enable ?? true;
@@ -269,10 +259,8 @@ export default function InboundInfoModal({
     const total = clientStats.total ?? 0;
     const used = (clientStats.up ?? 0) + (clientStats.down ?? 0);
     if (total > 0 && used >= total) return true;
-    const expiry = clientSettings.expiryTime ?? 0;
-    if (expiry > 0 && now >= expiry) return true;
     return false;
-  }, [clientStats, clientSettings, now]);
+  }, [clientStats, clientSettings]);
 
   const remainingStats = useMemo(() => {
     if (!clientStats || !clientSettings) return '-';
@@ -481,7 +469,6 @@ export default function InboundInfoModal({
           <tr>
             <th>{t('remained')}</th>
             <th>{t('pages.inbounds.totalUsage')}</th>
-            <th>{t('pages.inbounds.expireDate')}</th>
           </tr>
         </thead>
         <tbody>
@@ -499,21 +486,6 @@ export default function InboundInfoModal({
               {(clientSettings?.totalGB ?? 0) > 0 ? (
                 <Tag color={clientStats ? statsColor(clientStats, trafficDiff) : 'default'}>
                   {SizeFormatter.sizeFormat(clientSettings!.totalGB!)}
-                </Tag>
-              ) : (
-                <Tag color="purple">
-                  <InfinityIcon />
-                </Tag>
-              )}
-            </td>
-            <td>
-              {(clientSettings?.expiryTime ?? 0) > 0 ? (
-                <Tag color={ColorUtils.usageColor(now, expireDiff, clientSettings!.expiryTime!)}>
-                  {IntlUtil.formatDate(clientSettings!.expiryTime!, datepicker)}
-                </Tag>
-              ) : (clientSettings?.expiryTime ?? 0) < 0 ? (
-                <Tag color="green">
-                  {clientSettings!.expiryTime! / -86400000} {t('day')}
                 </Tag>
               ) : (
                 <Tag color="purple">

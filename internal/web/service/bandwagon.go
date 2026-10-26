@@ -297,15 +297,17 @@ type (
 		Down     int64 `json:"down"`
 	}
 	BandwagonStatus struct {
-		Config        BandwagonConfig        `json:"config"`
-		HasKey        bool                   `json:"hasKey"`
-		Cycle         *model.BandwagonCycle  `json:"cycle"`
-		History       []model.BandwagonCycle `json:"history"`
-		Clients       []BandwagonUsage       `json:"clients"`
-		Total         int64                  `json:"total"`
-		Stale         bool                   `json:"stale"`
-		AwaitingReset bool                   `json:"awaitingReset"`
-		Error         string                 `json:"error"`
+		Presence          []ClientPresence       `json:"presence"`
+		PresenceAvailable bool                   `json:"presenceAvailable"`
+		Config            BandwagonConfig        `json:"config"`
+		HasKey            bool                   `json:"hasKey"`
+		Cycle             *model.BandwagonCycle  `json:"cycle"`
+		History           []model.BandwagonCycle `json:"history"`
+		Clients           []BandwagonUsage       `json:"clients"`
+		Total             int64                  `json:"total"`
+		Stale             bool                   `json:"stale"`
+		AwaitingReset     bool                   `json:"awaitingReset"`
+		Error             string                 `json:"error"`
 	}
 )
 
@@ -321,14 +323,16 @@ func GetBandwagonStatus() (BandwagonStatus, error) {
 		return out, errors.New("无法读取统计配置")
 	}
 	if !c.Enabled {
-		return out, nil
+		e = populateClientPresence(&out, database.GetDB())
+		return out, e
 	}
 	db := database.GetDB()
 	if e = db.Where("ve_id = ?", c.VEID).Order("next_reset DESC").Limit(13).Find(&out.History).Error; e != nil {
 		return out, e
 	}
 	if len(out.History) == 0 {
-		return out, nil
+		e = populateClientPresence(&out, db)
+		return out, e
 	}
 	out.Cycle = &out.History[0]
 	out.Stale = time.Now().Unix()-out.Cycle.UpdatedAtUnix > 600
@@ -336,6 +340,9 @@ func GetBandwagonStatus() (BandwagonStatus, error) {
 	e = db.Model(&model.BandwagonTraffic{}).Select("client_id, SUM(up) AS up, SUM(down) AS down").Where("ve_id = ? AND minute >= ? AND minute < ?", c.VEID, out.Cycle.Start/60*60, out.Cycle.NextReset/60*60).Group("client_id").Scan(&out.Clients).Error
 	for _, v := range out.Clients {
 		out.Total += v.Up + v.Down
+	}
+	if e == nil {
+		e = populateClientPresence(&out, db)
 	}
 	return out, e
 }

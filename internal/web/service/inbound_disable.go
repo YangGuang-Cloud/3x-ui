@@ -44,7 +44,6 @@ func globalTrafficFreshSince() int64 {
 // whose combined usage exceeds the quota even though the local share doesn't.
 // Only rows a master refreshed recently count (placeholders: now, freshSince).
 const depletedClientsCond = `((total > 0 AND up + down >= total)
-	OR (expiry_time > 0 AND expiry_time <= ?)
 	OR (total > 0 AND EXISTS (
 		SELECT 1 FROM client_global_traffics g
 		WHERE g.email = client_traffics.email
@@ -57,24 +56,22 @@ const depletedClientsCond = `((total > 0 AND up + down >= total)
 // turns every traffic poll into a full client_traffics scan; on a panel no
 // master pushes to (the common case) client_global_traffics is empty, so the
 // branch can never match and is pure CPU cost (#5392). Placeholders: now.
-const depletedClientsCondLocal = `((total > 0 AND up + down >= total)
-	OR (expiry_time > 0 AND expiry_time <= ?))`
+const depletedClientsCondLocal = `(total > 0 AND up + down >= total)`
 
 // depletedCond returns the predicate matching depleted clients together with
 // the arguments it binds. The local-only variant is used unless this panel
 // holds a global-traffic row a master still refreshes, in which case the
 // cross-panel EXISTS check is needed to enforce combined quota.
 func depletedCond(tx *gorm.DB) (string, []any) {
-	now := time.Now().UnixMilli()
 	freshSince := globalTrafficFreshSince()
 	var probe int64
 	err := tx.Model(&model.ClientGlobalTraffic{}).
 		Where("updated_at >= ?", freshSince).
 		Limit(1).Count(&probe).Error
 	if err == nil && probe > 0 {
-		return depletedClientsCond, []any{now, freshSince}
+		return depletedClientsCond, []any{freshSince}
 	}
-	return depletedClientsCondLocal, []any{now}
+	return depletedClientsCondLocal, nil
 }
 
 func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *trafficMutationBatch) (bool, int64, []int, error) {
@@ -87,9 +84,8 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB, mutationBatch *traff
 	if cycle != nil {
 		managed := "EXISTS (SELECT 1 FROM clients bc WHERE bc.email = client_traffics.email AND " + bandwagonLocalClientSQL("bc.id") + ")"
 		// Quota enforcement for these clients runs through the independent cycle gate.
-		cond = "((" + cond + ") AND NOT (" + managed + ")) OR (" + managed + " AND expiry_time > 0 AND expiry_time <= ?)"
+		cond = "(" + cond + ") AND NOT (" + managed + ")"
 		cond = "(" + cond + ")"
-		condArgs = append(condArgs, now)
 	}
 
 	var depletedRows []xray.ClientTraffic

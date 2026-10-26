@@ -374,8 +374,20 @@ export function useClients(options: UseClientsOptions = {}) {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ email, client }: { email: string; client: unknown }) =>
-      HttpUtil.post(`/panel/api/clients/update/${encodeURIComponent(email)}`, client, JSON_HEADERS),
+    mutationFn: ({
+      email,
+      client,
+      silentSuccess,
+    }: {
+      email: string;
+      client: unknown;
+      silentSuccess?: boolean;
+    }) =>
+      HttpUtil.post(
+        `/panel/api/clients/update/${encodeURIComponent(email)}`,
+        client,
+        silentSuccess ? { ...JSON_HEADERS, silentSuccess: true } : JSON_HEADERS,
+      ),
     onSuccess: (msg) => {
       if (msg?.success) invalidateAll();
     },
@@ -562,9 +574,9 @@ export function useClients(options: UseClientsOptions = {}) {
 
   const create = useCallback((payload: unknown) => createMut.mutateAsync(payload), [createMut]);
   const update = useCallback(
-    (email: string, client: unknown) => {
+    (email: string, client: unknown, silentSuccess = false) => {
       if (!email) return Promise.resolve(null as unknown as Msg<unknown>);
-      return updateMut.mutateAsync({ email, client });
+      return updateMut.mutateAsync({ email, client, silentSuccess });
     },
     [updateMut],
   );

@@ -69,7 +69,7 @@ func TestBulkAdjustAcrossNodesPushesConcurrently(t *testing.T) {
 	if _, err := (&ClientService{}).Create(&InboundService{}, &ClientCreatePayload{
 		Client: model.Client{
 			Email: email, ID: "cccccccc-1111-2222-3333-444444444444", SubID: "sub-" + email,
-			Enable: true, ExpiryTime: time.Now().Add(24 * time.Hour).UnixMilli(),
+			Enable: true, TotalGB: 100, ExpiryTime: time.Now().Add(24 * time.Hour).UnixMilli(),
 		},
 		InboundIds: ids,
 	}); err != nil {
@@ -77,7 +77,7 @@ func TestBulkAdjustAcrossNodesPushesConcurrently(t *testing.T) {
 	}
 
 	bar.arm()
-	if _, _, err := (&ClientService{}).BulkAdjust(&InboundService{}, []string{email}, 1, 0, "", nil, ""); err != nil {
+	if _, _, err := (&ClientService{}).BulkAdjust(&InboundService{}, []string{email}, 0, 10, "", nil, ""); err != nil {
 		t.Fatalf("BulkAdjust across %d node inbounds: %v", nodes, err)
 	}
 	if got := bar.updateUser.Load(); got == 0 {

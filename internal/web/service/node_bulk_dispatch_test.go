@@ -218,7 +218,7 @@ func TestNodeBulkAdjustDoesNotPushBeforeFailedCommit(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Callback().Update().Remove(callbackName) })
 
-	result, _, err := (&ClientService{}).BulkAdjust(&InboundService{}, []string{client.Email}, 1, 0, "", nil, "")
+	result, _, err := (&ClientService{}).BulkAdjust(&InboundService{}, []string{client.Email}, 0, 0, "none", nil, "")
 	if err != nil {
 		t.Fatalf("BulkAdjust: %v", err)
 	}

@@ -2,12 +2,10 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Popover, Space, Tag, Tooltip } from 'antd';
 import {
-  DashboardOutlined,
   DeleteOutlined,
   EditOutlined,
   InfoCircleOutlined,
   QrcodeOutlined,
-  RetweetOutlined,
 } from '@ant-design/icons';
 
 import { formatInboundLabel } from '@/lib/inbounds/label';
@@ -19,10 +17,9 @@ interface ClientRowActionsProps {
   email: string;
   onShowQr: (email: string) => void;
   onShowInfo: (email: string) => void;
-  onResetTraffic: (email: string) => void;
+  onResetTraffic?: (email: string) => void;
   onEdit: (email: string) => void;
   onDelete: (email: string) => void;
-  onBandwidth?: (email: string) => void;
 }
 
 // Five Tooltip-wrapped buttons per row, none of which depend on traffic. Left
@@ -34,10 +31,8 @@ export const ClientRowActions = memo(function ClientRowActions({
   email,
   onShowQr,
   onShowInfo,
-  onResetTraffic,
   onEdit,
   onDelete,
-  onBandwidth,
 }: ClientRowActionsProps) {
   const { t } = useTranslation();
   return (
@@ -62,16 +57,6 @@ export const ClientRowActions = memo(function ClientRowActions({
           onClick={() => onShowInfo(email)}
         />
       </Tooltip>
-      <Tooltip title={t('pages.inbounds.resetTraffic')}>
-        <Button
-          size="small"
-          type="text"
-          style={ICON_BUTTON_STYLE}
-          icon={<RetweetOutlined />}
-          aria-label={t('pages.inbounds.resetTraffic')}
-          onClick={() => onResetTraffic(email)}
-        />
-      </Tooltip>
       <Tooltip title={t('edit')}>
         <Button
           size="small"
@@ -82,18 +67,6 @@ export const ClientRowActions = memo(function ClientRowActions({
           onClick={() => onEdit(email)}
         />
       </Tooltip>
-      {onBandwidth && (
-        <Tooltip title={t('pages.clients.bandwidthTitle')}>
-          <Button
-            size="small"
-            type="text"
-            style={ICON_BUTTON_STYLE}
-            icon={<DashboardOutlined />}
-            aria-label={t('pages.clients.bandwidthTitle')}
-            onClick={() => onBandwidth(email)}
-          />
-        </Tooltip>
-      )}
       <Tooltip title={t('delete')}>
         <Button
           size="small"

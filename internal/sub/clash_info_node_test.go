@@ -122,15 +122,10 @@ func TestSubClash_InfoNode_Expired(t *testing.T) {
 		t.Fatalf("GetClash: %v", err)
 	}
 
-	if !strings.Contains(out, "type: socks5") || !strings.Contains(out, "server: 127.0.0.1") {
-		t.Fatalf("expected socks5 dummy node in clash YAML, got:\n%s", out)
+	if strings.Contains(out, "Expired") || !strings.Contains(out, "Germany-VLESS") {
+		t.Fatalf("retired expiry affected clash subscription: %s", out)
 	}
-	if !strings.Contains(out, "Expired") || !strings.Contains(out, "exp@test.com") {
-		t.Fatalf("expected expired remark in clash YAML, got:\n%s", out)
-	}
-	if strings.Contains(out, "Germany-VLESS") {
-		t.Fatalf("expired subscription must NOT contain working inbound, got:\n%s", out)
-	}
+
 }
 
 func TestSubClash_InfoNode_Depleted(t *testing.T) {

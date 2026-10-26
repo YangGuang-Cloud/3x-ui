@@ -299,11 +299,9 @@ type BulkAdjustReport struct {
 }
 
 type bulkAdjustEntry struct {
-	record      *model.ClientRecord
-	applyExpiry bool
-	newExpiry   int64
-	applyTotal  bool
-	newTotal    int64
+	record     *model.ClientRecord
+	applyTotal bool
+	newTotal   int64
 }
 
 // bulkFlowClear is the directive that strips the XTLS flow from every selected
@@ -322,10 +320,7 @@ var bulkFlowAllowed = map[string]struct{}{
 	"xtls-rprx-vision-udp443": {},
 }
 
-// BulkAdjust shifts ExpiryTime by addDays (days) and TotalGB by addBytes
-// for every email in the list. Clients whose corresponding field is
-// unlimited (0) are skipped — bulk extend should not accidentally
-// limit an unlimited client. addDays and addBytes may be negative.
+// BulkAdjust adjusts traffic quotas. The legacy addDays argument is rejected.
 // flow sets the XTLS flow, limitHwid the max registered devices (0 = unlimited)
 // and adTag the MTProto sponsor channel; "none" clears flow or adTag.
 //
@@ -334,6 +329,9 @@ var bulkFlowAllowed = map[string]struct{}{
 // many target emails it contains.
 func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, addDays int, addBytes int64, flow string, limitHwid *int, adTag string) (BulkAdjustResult, bool, error) {
 	result := BulkAdjustResult{}
+	if addDays != 0 {
+		return result, false, common.NewError("client expiry and renewal have been retired")
+	}
 	if len(emails) == 0 {
 		return result, false, nil
 	}
@@ -355,8 +353,6 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 	if addDays == 0 && addBytes == 0 && !adjustFlow && !adjustHwid && !adjustAdTag {
 		return result, false, common.NewError("no adjustment specified")
 	}
-
-	addExpiryMs := int64(addDays) * 24 * 60 * 60 * 1000
 
 	cleanEmails := trimmedUniqueEmails(emails)
 	if len(cleanEmails) == 0 {
@@ -380,34 +376,7 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 	plan := map[string]*bulkAdjustEntry{}
 	for email, rec := range recordsByEmail {
 		entry := &bulkAdjustEntry{record: rec}
-		if addDays != 0 {
-			switch {
-			case rec.ExpiryTime == 0:
-				if _, exists := skippedReasons[email]; !exists {
-					skippedReasons[email] = "unlimited expiry"
-				}
-			case rec.ExpiryTime > 0:
-				next := rec.ExpiryTime + addExpiryMs
-				if next <= 0 {
-					if _, exists := skippedReasons[email]; !exists {
-						skippedReasons[email] = "reduction exceeds remaining time"
-					}
-				} else {
-					entry.applyExpiry = true
-					entry.newExpiry = next
-				}
-			default:
-				next := rec.ExpiryTime - addExpiryMs
-				if next >= 0 {
-					if _, exists := skippedReasons[email]; !exists {
-						skippedReasons[email] = "reduction exceeds delay window"
-					}
-				} else {
-					entry.applyExpiry = true
-					entry.newExpiry = next
-				}
-			}
-		}
+
 		if addBytes != 0 {
 			if rec.TotalGB == 0 {
 				if _, exists := skippedReasons[email]; !exists {
@@ -425,7 +394,7 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 				}
 			}
 		}
-		if entry.applyExpiry || entry.applyTotal || adjustFlow || adjustHwid || adjustAdTag {
+		if entry.applyTotal || adjustFlow || adjustHwid || adjustAdTag {
 			plan[email] = entry
 		}
 	}
@@ -440,7 +409,7 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 	plannedIds := make([]int, 0, len(plan))
 	recordIdToEmail := make(map[int]string, len(plan))
 	for email, entry := range plan {
-		if entry.applyExpiry || entry.applyTotal || adjustFlow || adjustAdTag {
+		if entry.applyTotal || adjustFlow || adjustAdTag {
 			plannedIds = append(plannedIds, entry.record.Id)
 			recordIdToEmail[entry.record.Id] = email
 		}
@@ -510,7 +479,7 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 	cond, condArgs := depletedCond(db)
 	candidateEmails := make([]string, 0, len(plan))
 	for email, entry := range plan {
-		if entry.applyExpiry || entry.applyTotal {
+		if entry.applyTotal {
 			candidateEmails = append(candidateEmails, email)
 		}
 	}
@@ -538,9 +507,6 @@ func (s *ClientService) BulkAdjust(inboundSvc *InboundService, emails []string, 
 			continue
 		}
 		updates := map[string]any{}
-		if entry.applyExpiry {
-			updates["expiry_time"] = entry.newExpiry
-		}
 		if entry.applyTotal {
 			updates["total"] = entry.newTotal
 		}
@@ -731,10 +697,6 @@ func (s *ClientService) bulkAdjustInboundClients(
 		}
 		clientChanged := false
 		entry := plan[targetEmail]
-		if entry.applyExpiry {
-			c["expiryTime"] = entry.newExpiry
-			clientChanged = true
-		}
 		if entry.applyTotal {
 			c["totalGB"] = entry.newTotal
 			clientChanged = true
@@ -841,9 +803,6 @@ func (s *ClientService) bulkAdjustInboundClients(
 				for email := range foundEmails {
 					entry := plan[email]
 					updated := *entry.record.ToClient()
-					if entry.applyExpiry {
-						updated.ExpiryTime = entry.newExpiry
-					}
 					if entry.applyTotal {
 						updated.TotalGB = entry.newTotal
 					}
@@ -1524,14 +1483,13 @@ func (s *ClientService) bulkCreate(inboundSvc *InboundService, payloads []Client
 
 func (s *ClientService) DelDepleted(inboundSvc *InboundService) (int, bool, error) {
 	db := database.GetDB()
-	now := time.Now().UnixMilli()
 	depletedClause, err := cycleSafePurgeClause(db)
 	if err != nil {
 		return 0, false, err
 	}
 
 	var rows []xray.ClientTraffic
-	if err := db.Where(depletedClause, now).Find(&rows).Error; err != nil {
+	if err := db.Where(depletedClause).Find(&rows).Error; err != nil {
 		return 0, false, err
 	}
 	if len(rows) == 0 {

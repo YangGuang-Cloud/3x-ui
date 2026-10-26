@@ -1,7 +1,6 @@
 package job
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/runtime"
-	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 )
 
 // resetGate holds every node reset open until released, counting how many nodes
@@ -95,34 +93,6 @@ func newResetFleet(t *testing.T) *resetGate {
 
 // The job reset due clients and inbounds one by one, each waiting on its node,
 // so a few hanging nodes stretched one run across hours.
-func TestPeriodicResetReachesClientNodesConcurrently(t *testing.T) {
-	gate := newResetFleet(t)
-	db := database.GetDB()
-	for i := range 3 {
-		nodeID := resetNode(t, gate, fmt.Sprintf("client-node-%d", i), "reset-client-"+strconv.Itoa(i))
-		email := fmt.Sprintf("cycle-%d@node", i)
-		client := model.Client{Email: email, ID: fmt.Sprintf("00000000-0000-4000-8000-00000000000%d", i), Enable: true, TrafficReset: "daily"}
-		settings, _ := json.Marshal(map[string]any{"clients": []model.Client{client}})
-		ib := model.Inbound{
-			UserId: 1, Enable: true, Port: 47000 + i, Protocol: model.VLESS, NodeID: &nodeID,
-			Tag: "reset-client-" + strconv.Itoa(i), TrafficReset: "never", Settings: string(settings),
-		}
-		if err := db.Create(&ib).Error; err != nil {
-			t.Fatalf("create inbound: %v", err)
-		}
-		rec := model.ClientRecord{Email: email, UUID: client.ID, Enable: true, TrafficReset: "daily"}
-		if err := db.Create(&rec).Error; err != nil {
-			t.Fatalf("create client record: %v", err)
-		}
-		if err := db.Create(&model.ClientInbound{ClientId: rec.Id, InboundId: ib.Id}).Error; err != nil {
-			t.Fatalf("link client: %v", err)
-		}
-		if err := db.Create(&xray.ClientTraffic{InboundId: ib.Id, Email: email, Enable: true, Up: 500, Down: 700}).Error; err != nil {
-			t.Fatalf("create traffic: %v", err)
-		}
-	}
-	runResetJobAgainstGate(t, gate, 3)
-}
 
 func TestPeriodicResetReachesInboundNodesConcurrently(t *testing.T) {
 	gate := newResetFleet(t)

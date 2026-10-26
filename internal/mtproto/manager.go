@@ -212,9 +212,6 @@ func InstanceFromInbound(ib *model.Inbound) (Instance, bool) {
 		if c.TotalGB > 0 {
 			entry.QuotaBytes = c.TotalGB
 		}
-		if c.ExpiryTime > 0 {
-			entry.ExpiresUnix = c.ExpiryTime / 1000
-		}
 		secrets = append(secrets, entry)
 	}
 	if len(secrets) == 0 {

@@ -33,6 +33,6 @@
 临时目录被清理后需重新安装工具链（或在 PATH 提供对应版本），前端依赖可用 npm ci 重装。
 
 发布流程：
-main 本地验收 → GitHub Linux 构建与集成测试通过 → 确认候选版本 → 合入并 Push Release。
+main 本地验收 → 等用户明确说“开始部署上线” → GitHub Linux 构建与集成测试通过 → 确认候选版本 → 合入并 Push Release。
 Release Push 自动部署，服务器继续执行生产配置预检、真实转发健康检查和失败回滚验证。
 本地通过不能替代 Linux/TLS/geodata/生产部署验证；单实例正式切换仍可能短暂重连。

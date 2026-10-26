@@ -48,7 +48,7 @@ func TestAggregateTrafficByEmails_FallsBackToClientLimits(t *testing.T) {
 	if agg.Total != totalBytes {
 		t.Errorf("total = %d, want %d (fallback to clients table)", agg.Total, totalBytes)
 	}
-	if agg.ExpiryTime != expiry {
+	if agg.ExpiryTime != 0 {
 		t.Errorf("expiry = %d, want %d (fallback to clients table)", agg.ExpiryTime, expiry)
 	}
 }

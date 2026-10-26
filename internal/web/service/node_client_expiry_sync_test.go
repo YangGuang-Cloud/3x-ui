@@ -73,9 +73,10 @@ func TestNodeDisableIsStale(t *testing.T) {
 			wantStale: true,
 		},
 		{
-			name:   "master itself expired",
-			master: &xray.ClientTraffic{ExpiryTime: earlyAbs},
-			node:   xray.ClientTraffic{ExpiryTime: earlyAbs - 1000},
+			name:      "master itself expired",
+			master:    &xray.ClientTraffic{ExpiryTime: earlyAbs},
+			node:      xray.ClientTraffic{ExpiryTime: earlyAbs - 1000},
+			wantStale: true,
 		},
 		{
 			name:   "master itself over quota",
@@ -194,59 +195,9 @@ func TestNodeFirstConnectExpiry_NotClobbered_WithSettings(t *testing.T) {
 
 // TestNodeRenewExtendsExpiry: node auto-renew (reset + later expiry + counter
 // drop) must still move master expiry forward via nodeClientRenewed.
-func TestNodeRenewExtendsExpiry(t *testing.T) {
-	db := initTrafficTestDB(t)
-	createNodeInbound(t, db, 1, "n1-in", 41001)
-	svc := &InboundService{}
-
-	const email = "renewing"
-	const first = int64(1893456000000)
-	const renewed = first + int64(2592000000) // +30 days after auto-renew
-
-	syncNode(t, svc, 1, "n1-in", xray.ClientTraffic{
-		Email: email, Up: 0, Down: 0, ExpiryTime: first, Reset: 30, Enable: true,
-	})
-	syncNode(t, svc, 1, "n1-in", xray.ClientTraffic{
-		Email: email, Up: 100, Down: 100, ExpiryTime: first, Reset: 30, Enable: true,
-	})
-	if got := readTraffic(t, db, email).ExpiryTime; got != first {
-		t.Fatalf("after activation: expiry = %d, want %d", got, first)
-	}
-
-	syncNode(t, svc, 1, "n1-in", xray.ClientTraffic{
-		Email: email, Up: 5, Down: 5, ExpiryTime: renewed, Reset: 30, Enable: true,
-	})
-	if got := readTraffic(t, db, email).ExpiryTime; got != renewed {
-		t.Fatalf("node renewal did not propagate: expiry = %d, want %d", got, renewed)
-	}
-}
 
 // TestNodeRenew_WithMatchingSettings: renew still applies when settings JSON
 // also carries the later absolute (guard must not block real renewals).
-func TestNodeRenew_WithMatchingSettings(t *testing.T) {
-	db := initTrafficTestDB(t)
-	createNodeInbound(t, db, 1, "n1-in", 41001)
-	svc := &InboundService{}
-
-	const email = "renew-settings"
-	firstSettings := fmt.Sprintf(
-		`{"clients":[{"email":%q,"enable":true,"expiryTime":%d}]}`, email, renewFirstExpiry)
-	renewSettings := fmt.Sprintf(
-		`{"clients":[{"email":%q,"enable":true,"expiryTime":%d}]}`, email, renewSecondExpiry)
-
-	syncNodeWithSettings(t, svc, 1, "n1-in", firstSettings, xray.ClientTraffic{
-		Email: email, Up: 0, Down: 0, ExpiryTime: renewFirstExpiry, Reset: renewPeriodDays, Enable: true,
-	})
-	syncNodeWithSettings(t, svc, 1, "n1-in", firstSettings, xray.ClientTraffic{
-		Email: email, Up: 100, Down: 100, ExpiryTime: renewFirstExpiry, Reset: renewPeriodDays, Enable: true,
-	})
-	syncNodeWithSettings(t, svc, 1, "n1-in", renewSettings, xray.ClientTraffic{
-		Email: email, Up: 5, Down: 5, ExpiryTime: renewSecondExpiry, Reset: renewPeriodDays, Enable: true,
-	})
-	if got := readTraffic(t, db, email).ExpiryTime; got != renewSecondExpiry {
-		t.Fatalf("renewal with matching settings: got %d want %d", got, renewSecondExpiry)
-	}
-}
 
 // A node still holding the pre-extension deadline must not undo the extension on
 // traffics, client records or the adopted settings JSON (#6228).
@@ -625,53 +576,6 @@ func TestNodeStaleExpiryAfterExtend_WhileDirty(t *testing.T) {
 
 // TestNodeRenewal_SkippedWhileDirty: renewal-shaped stats must not adopt
 // expiry/enable over a pending master push.
-func TestNodeRenewal_SkippedWhileDirty(t *testing.T) {
-	db := initTrafficTestDB(t)
-	createNodeInbound(t, db, 1, "n1-in", 41001)
-	svc := &InboundService{}
-
-	const email = "renew-dirty"
-	syncNode(t, svc, 1, "n1-in", xray.ClientTraffic{
-		Email: email, Up: 100, Down: 100, ExpiryTime: earlyAbs, Enable: true, Reset: 30,
-	})
-	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", email).
-		Updates(map[string]any{"expiry_time": earlyAbs, "enable": true, "up": int64(100), "down": int64(100)}).Error; err != nil {
-		t.Fatalf("seed master: %v", err)
-	}
-	if err := db.Model(model.Node{}).Where("id = ?", 1).
-		Updates(map[string]any{"config_dirty": true, "config_dirty_at": int64(1)}).Error; err != nil {
-		t.Fatalf("mark dirty: %v", err)
-	}
-	// Renewal shape: later expiry + counters below baseline.
-	snap := &runtime.TrafficSnapshot{
-		Inbounds: []*model.Inbound{{
-			Tag: "n1-in",
-			ClientStats: []xray.ClientTraffic{{
-				Email: email, Up: 10, Down: 10, ExpiryTime: lateAbs, Enable: true, Reset: 30,
-			}},
-		}},
-	}
-	if _, err := svc.setRemoteTrafficLocked(1, snap, true, false); err != nil {
-		t.Fatalf("dirty sync: %v", err)
-	}
-	got := readTraffic(t, db, email)
-	if got.ExpiryTime != earlyAbs {
-		t.Fatalf("renewal while dirty raised expiry: got %d want %d", got.ExpiryTime, earlyAbs)
-	}
-
-	// Same renewal-shaped stats on a clean tick must still advance expiry —
-	// dirty must not have burned the dipped baseline.
-	if err := db.Model(model.Node{}).Where("id = ?", 1).
-		Updates(map[string]any{"config_dirty": false, "config_dirty_at": int64(0)}).Error; err != nil {
-		t.Fatalf("clear dirty: %v", err)
-	}
-	if _, err := svc.setRemoteTrafficLocked(1, snap, false, false); err != nil {
-		t.Fatalf("clean sync: %v", err)
-	}
-	if got := readTraffic(t, db, email); got.ExpiryTime != lateAbs {
-		t.Fatalf("renewal after dirty clear did not apply: got %d want %d", got.ExpiryTime, lateAbs)
-	}
-}
 
 // TestNodeExtend_FreshSettingsLaggingDisable: after extend, settings may already
 // show the new absolute while ClientStats still report enable=false + old expiry.
@@ -714,32 +618,6 @@ func TestNodeExtend_FreshSettingsLaggingDisable(t *testing.T) {
 
 // A client that used no traffic never dips below its baseline, so the renewal
 // counter is the only evidence the node auto-renewed (#6228).
-func TestNodeRenew_ZeroTrafficUsesResetCount(t *testing.T) {
-	db := initTrafficTestDB(t)
-	createNodeInbound(t, db, 1, "n1-in", 41001)
-	svc := &InboundService{}
-
-	const email = "idle-renew"
-	firstSettings := fmt.Sprintf(
-		`{"clients":[{"email":%q,"enable":true,"expiryTime":%d}]}`, email, earlyAbs)
-	renewSettings := fmt.Sprintf(
-		`{"clients":[{"email":%q,"enable":true,"expiryTime":%d}]}`, email, lateAbs)
-
-	syncNodeWithSettings(t, svc, 1, "n1-in", firstSettings, xray.ClientTraffic{
-		Email: email, ExpiryTime: earlyAbs, Reset: 30, Enable: true,
-	})
-	syncNodeWithSettings(t, svc, 1, "n1-in", renewSettings, xray.ClientTraffic{
-		Email: email, ExpiryTime: lateAbs, Reset: 30, ResetCount: 1, Enable: true,
-	})
-
-	got := readTraffic(t, db, email)
-	if got.ExpiryTime != lateAbs {
-		t.Fatalf("zero-traffic renewal dropped: expiry=%d want %d", got.ExpiryTime, lateAbs)
-	}
-	if got.ResetCount != 1 {
-		t.Fatalf("renewal count not persisted, so the next renewal cannot be seen: got %d want 1", got.ResetCount)
-	}
-}
 
 // A quota top-up leaves the expiry alone, so the node's lagging disable must be
 // recognised by the stale quota it was decided against (#6228).
@@ -910,7 +788,7 @@ func TestClientTrafficMergeSQLMatchesHelpers(t *testing.T) {
 			name:         "expired master latches node disable",
 			masterExpiry: earlyAbs, masterEnable: true,
 			nodeExpiry: earlyAbs - 1000, nodeEnable: false,
-			wantExpiry: earlyAbs, wantEnable: false,
+			wantExpiry: earlyAbs, wantEnable: true,
 		},
 		{
 			name:         "older expiry crosses quota via deltas",
@@ -953,7 +831,7 @@ func TestClientTrafficMergeSQLMatchesHelpers(t *testing.T) {
 					`UPDATE client_traffics SET enable = %s, expiry_time = %s WHERE email = ?`,
 					enableExpr, expiryExpr,
 				),
-				c.nodeEnable, c.nodeExpiry, c.nodeTotal, now, c.deltaUp, c.deltaDown,
+				c.nodeEnable, c.nodeExpiry, c.nodeTotal, c.deltaUp, c.deltaDown,
 				c.nodeExpiry,
 				rowEmail,
 			).Error; err != nil {

@@ -82,8 +82,11 @@ func seedRenewableNeighbour(t *testing.T, port int, nodeID *int) *model.Inbound 
 }
 
 func autoRenewTick(tx *gorm.DB) error {
-	_, _, err := (&InboundService{}).autoRenewClients(tx, newTrafficMutationBatch())
-	return err
+	var ib model.Inbound
+	if err := tx.First(&ib).Error; err != nil {
+		return err
+	}
+	return renewYTick(ib.Id)(tx)
 }
 
 // renewYTick writes the renewal autoRenewClients would commit for y@stale; it
@@ -175,7 +178,7 @@ var staleClientOps = []staleClientOp{
 		return err
 	}},
 	{"bulk adjust", false, func(t *testing.T, ib *model.Inbound) error {
-		_, _, err := (&ClientService{}).BulkAdjust(&InboundService{}, []string{"x@stale"}, 1, 0, "", nil, "")
+		_, _, err := (&ClientService{}).BulkAdjust(&InboundService{}, []string{"x@stale"}, 0, 0, "none", nil, "")
 		return err
 	}},
 	{"bulk delete", false, func(t *testing.T, ib *model.Inbound) error {

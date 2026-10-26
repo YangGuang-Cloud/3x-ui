@@ -98,91 +98,19 @@ func recordFor(t *testing.T, email string) model.ClientRecord {
 }
 
 func TestPeriodicTrafficResetClients(t *testing.T) {
-	t.Run("resets a client on its own cycle inside a never-reset inbound", func(t *testing.T) {
-		initResetJobDB(t)
-		seedClientOnCycle(t, 41001, seededClient{email: "weekly@example.com", cycle: "weekly", day: 1, recordEnable: true, quotaEnable: true})
-		seedClientOnCycle(t, 41002, seededClient{email: "monthly@example.com", cycle: "monthly", day: 1, recordEnable: true, quotaEnable: true})
 
-		NewPeriodicTrafficResetJob("weekly", time.UTC).Run()
-
-		if row := trafficFor(t, "weekly@example.com"); row.Up != 0 || row.Down != 0 {
-			t.Fatalf("weekly client not reset by the weekly run: up=%d down=%d", row.Up, row.Down)
-		}
-		if row := trafficFor(t, "monthly@example.com"); row.Up != 500 || row.Down != 700 {
-			t.Fatalf("monthly client reset by the weekly run: up=%d down=%d", row.Up, row.Down)
-		}
-	})
-
-	t.Run("leaves a client with no cycle of its own alone", func(t *testing.T) {
-		initResetJobDB(t)
-		seedClientOnCycle(t, 41003, seededClient{email: "none@example.com", cycle: "never", day: 1, recordEnable: true, quotaEnable: true})
-
-		for _, period := range []Period{"hourly", "daily", "weekly", "monthly"} {
+	for _, period := range []Period{"hourly", "daily", "weekly", "monthly"} {
+		t.Run(string(period), func(t *testing.T) {
+			initResetJobDB(t)
+			seedClientOnCycle(t, 54321, seededClient{email: "retired@test", cycle: string(period), day: time.Now().Day(), recordEnable: true, quotaEnable: false, total: 100})
 			NewPeriodicTrafficResetJob(period, time.UTC).Run()
-		}
-
-		if row := trafficFor(t, "none@example.com"); row.Up != 500 || row.Down != 700 {
-			t.Fatalf("client with trafficReset=never was reset: up=%d down=%d", row.Up, row.Down)
-		}
-	})
-
-	t.Run("monthly client waits for its own day", func(t *testing.T) {
-		initResetJobDB(t)
-		today := time.Now().In(time.UTC).Day()
-		otherDay := today%28 + 1
-		seedClientOnCycle(t, 41004, seededClient{email: "due@example.com", cycle: "monthly", day: today, recordEnable: true, quotaEnable: true})
-		seedClientOnCycle(t, 41005, seededClient{email: "notdue@example.com", cycle: "monthly", day: otherDay, recordEnable: true, quotaEnable: true})
-
-		NewPeriodicTrafficResetJob("monthly", time.UTC).Run()
-
-		if row := trafficFor(t, "due@example.com"); row.Up != 0 || row.Down != 0 {
-			t.Fatalf("client due today was not reset: up=%d down=%d", row.Up, row.Down)
-		}
-		if row := trafficFor(t, "notdue@example.com"); row.Up != 500 || row.Down != 700 {
-			t.Fatalf("client due on another day was reset: up=%d down=%d", row.Up, row.Down)
-		}
-	})
-
-	t.Run("restores a client the quota switched off", func(t *testing.T) {
-		initResetJobDB(t)
-		// Depletion disables all three of client_traffics.enable, clients.enable
-		// and the settings JSON, so a reset that lifts only the first leaves the
-		// client out of the running core with nothing left to revisit it.
-		seedClientOnCycle(t, 41006, seededClient{
-			email: "depleted@example.com", cycle: "daily", day: 1,
-			recordEnable: false, quotaEnable: false, total: 1000,
+			row := trafficFor(t, "retired@test")
+			if row.Up != 500 || row.Down != 700 || row.Enable {
+				t.Fatalf("retired schedule changed usage/gate: %+v", row)
+			}
 		})
+	}
 
-		NewPeriodicTrafficResetJob("daily", time.UTC).Run()
-
-		if row := trafficFor(t, "depleted@example.com"); !row.Enable {
-			t.Fatal("quota gate not lifted: the client cannot use its new allowance")
-		}
-		if rec := recordFor(t, "depleted@example.com"); !rec.Enable {
-			t.Fatal("clients.enable still false: GetXrayConfig skips the client, so it stays locked out for good")
-		}
-		if enabled := settingsEnableOf(t, 41006); !enabled {
-			t.Fatal("the inbound settings JSON still has the client disabled")
-		}
-	})
-
-	t.Run("leaves a client the operator switched off", func(t *testing.T) {
-		initResetJobDB(t)
-		// Disabled with usage below quota: nothing but a human did that.
-		seedClientOnCycle(t, 41007, seededClient{
-			email: "banned@example.com", cycle: "daily", day: 1,
-			recordEnable: false, quotaEnable: true, total: 100000,
-		})
-
-		NewPeriodicTrafficResetJob("daily", time.UTC).Run()
-
-		if rec := recordFor(t, "banned@example.com"); rec.Enable {
-			t.Fatal("an operator-disabled client was switched back on by a cron job")
-		}
-		if row := trafficFor(t, "banned@example.com"); row.Up != 500 || row.Down != 700 {
-			t.Fatalf("an operator-disabled client was reset anyway: up=%d down=%d", row.Up, row.Down)
-		}
-	})
 }
 
 func settingsEnableOf(t *testing.T, port int) bool {

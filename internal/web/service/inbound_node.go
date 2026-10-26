@@ -254,7 +254,7 @@ func (s *InboundService) mergeNodeClientTraffic(tx *gorm.DB, cs xray.ClientTraff
 			database.GreatestExpr("last_online", "?"),
 		),
 		deltaUp, deltaDown,
-		cs.Enable, cs.ExpiryTime, cs.Total, now, deltaUp, deltaDown,
+		cs.Enable, cs.ExpiryTime, cs.Total, deltaUp, deltaDown,
 		cs.Total,
 		cs.ExpiryTime, cs.Reset, cs.ResetDay, cs.ResetWeekday,
 		cs.LastOnline, cs.Email,
@@ -262,7 +262,7 @@ func (s *InboundService) mergeNodeClientTraffic(tx *gorm.DB, cs xray.ClientTraff
 }
 
 // mergeActivationExpiry: master absolute wins; node may only activate when
-// master is unset/duration. Node auto-renew goes through nodeClientRenewed.
+// master is unset/duration. These fields are retained only for compatibility.
 func mergeActivationExpiry(existing, node int64) int64 {
 	if existing > 0 {
 		return existing
@@ -274,9 +274,6 @@ func mergeActivationExpiry(existing, node int64) int64 {
 // (including this tick's deltas) still permit the client.
 func masterLimitsAllowClient(master *xray.ClientTraffic, now, deltaUp, deltaDown int64) bool {
 	if master == nil {
-		return false
-	}
-	if master.ExpiryTime > 0 && master.ExpiryTime <= now {
 		return false
 	}
 	if master.Total > 0 && master.Up+deltaUp+master.Down+deltaDown >= master.Total {
@@ -324,36 +321,6 @@ func applyMasterClientLifecycle(c *model.Client, master *xray.ClientTraffic, cs 
 	c.Enable = master.Enable
 }
 
-// nodeClientRenewed reports a node-side auto-renew: an absolute deadline moved
-// forward, evidenced by a renewal-count bump or a drop below the stored baseline.
-func nodeClientRenewed(existing *xray.ClientTraffic, cs xray.ClientTraffic, canon, base nodeTrafficCounter) bool {
-	if (cs.Reset <= 0 && cs.ResetDay <= 0 && cs.ResetWeekday <= 0) || cs.ExpiryTime <= 0 || existing.ExpiryTime <= 0 {
-		return false
-	}
-	if cs.ExpiryTime <= existing.ExpiryTime {
-		return false
-	}
-	// A client that used no traffic in the period never dips, so the renewal
-	// counter is the only evidence autoRenewClients leaves behind (#6228).
-	if cs.ResetCount > existing.ResetCount {
-		return true
-	}
-	return canon.Up < base.Up || canon.Down < base.Down
-}
-
-// liftActivatedClientRecordExpiries copies a node-activated deadline from
-// client_traffics onto client records still holding the negative duration (#5714).
-func liftActivatedClientRecordExpiries(tx *gorm.DB) error {
-	return tx.Exec(
-		`UPDATE clients
-		 SET expiry_time = (SELECT ct.expiry_time FROM client_traffics ct WHERE ct.email = clients.email AND ct.expiry_time > 0 LIMIT 1)
-		 WHERE clients.expiry_time < 0
-		   AND EXISTS (SELECT 1 FROM client_traffics ct WHERE ct.email = clients.email AND ct.expiry_time > 0)`,
-	).Error
-}
-
-// SnapshotHasUnadoptedInbounds reports whether the snapshot carries a tag with
-// no central row yet, i.e. the next merge would adopt a new inbound.
 func (s *InboundService) SnapshotHasUnadoptedInbounds(nodeID int, snap *runtime.TrafficSnapshot) (bool, error) {
 	if snap == nil || len(snap.Inbounds) == 0 {
 		return false, nil
@@ -1037,7 +1004,6 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 		}
 		snapEmails := make(map[string]struct{}, len(snapIb.ClientStats))
 		// Parsed once per inbound on the first renewal candidate, not per client.
-		var snapExpiries map[string]int64
 		attachedOnNode, membershipKnown := snapshotAttachedEmails(snapIb.Settings)
 		for _, cs := range snapIb.ClientStats {
 			// A node detach keeps the stat row, so its quota and verdict are stale (#6724).
@@ -1124,72 +1090,28 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 				}
 			}
 
-			renewed := !clientFrozen && seen && existing != nil && nodeClientRenewed(existing, cs, canon, base)
-			if renewed {
-				// Reject when the node's own settings still carry the old absolute:
-				// lagging ClientStats after a master shorten mimic a renew (#6228).
-				if snapExpiries == nil {
-					snapExpiries = settingsClientAbsoluteExpiries(snapIb.Settings)
+			// The row as the UPDATE below would leave it, computed from its
+			// pre-update values exactly as the SQL reads them.
+			row := statByEmail[cs.Email]
+			next := *row
+			next.Up = clampTrafficCounter(row.Up + deltaUp)
+			next.Down = clampTrafficCounter(row.Down + deltaDown)
+			next.LastOnline = max(row.LastOnline, cs.LastOnline)
+			if !clientFrozen {
+				if !cs.Enable && !nodeDisableIsStale(row, cs, now, deltaUp, deltaDown) {
+					next.Enable = false
 				}
-				if se, ok := snapExpiries[cs.Email]; ok && se <= existing.ExpiryTime {
-					renewed = false
-				}
+				next.ExpiryTime = mergeActivationExpiry(row.ExpiryTime, cs.ExpiryTime)
+				next.Total = cs.Total
+				next.Reset, next.ResetDay, next.ResetWeekday = cs.Reset, cs.ResetDay, cs.ResetWeekday
 			}
-			if renewed {
-				// A renewal starts a fresh quota window: adopt the node's counters
-				// and enable state, drop stale pushes (mirrors autoRenewClients).
-				if err := tx.Exec(
-					fmt.Sprintf(
-						`UPDATE client_traffics
-						 SET up = ?, down = ?, enable = ?, total = ?,
-						     expiry_time = ?, reset = ?, reset_day = ?, reset_weekday = ?, reset_count = ?, last_online = %s
-						 WHERE email = ?`,
-						database.GreatestExpr("last_online", "?"),
-					),
-					canon.Up, canon.Down, cs.Enable, cs.Total,
-					cs.ExpiryTime, cs.Reset, cs.ResetDay, cs.ResetWeekday, cs.ResetCount,
-					cs.LastOnline, cs.Email,
-				).Error; err != nil {
+			// A multi-attached client is reported once per inbound and an idle one
+			// every tick: rewriting an unchanged row only holds its lock longer.
+			if next != *row {
+				if err := s.mergeNodeClientTraffic(tx, cs, clientFrozen, deltaUp, deltaDown, now); err != nil {
 					return false, err
 				}
-				if err := clearGlobalTraffic(tx, cs.Email); err != nil {
-					return false, err
-				}
-				existing.Up = canon.Up
-				existing.Down = canon.Down
-				existing.Enable = cs.Enable
-				existing.Total = cs.Total
-				existing.ExpiryTime = cs.ExpiryTime
-				existing.Reset = cs.Reset
-				existing.ResetDay = cs.ResetDay
-				existing.ResetWeekday = cs.ResetWeekday
-				existing.ResetCount = cs.ResetCount
-				existing.LastOnline = max(existing.LastOnline, cs.LastOnline)
-				structuralChange = true
-			} else {
-				// The row as the UPDATE below would leave it, computed from its
-				// pre-update values exactly as the SQL reads them.
-				row := statByEmail[cs.Email]
-				next := *row
-				next.Up = clampTrafficCounter(row.Up + deltaUp)
-				next.Down = clampTrafficCounter(row.Down + deltaDown)
-				next.LastOnline = max(row.LastOnline, cs.LastOnline)
-				if !clientFrozen {
-					if !cs.Enable && !nodeDisableIsStale(row, cs, now, deltaUp, deltaDown) {
-						next.Enable = false
-					}
-					next.ExpiryTime = mergeActivationExpiry(row.ExpiryTime, cs.ExpiryTime)
-					next.Total = cs.Total
-					next.Reset, next.ResetDay, next.ResetWeekday = cs.Reset, cs.ResetDay, cs.ResetWeekday
-				}
-				// A multi-attached client is reported once per inbound and an idle one
-				// every tick: rewriting an unchanged row only holds its lock longer.
-				if next != *row {
-					if err := s.mergeNodeClientTraffic(tx, cs, clientFrozen, deltaUp, deltaDown, now); err != nil {
-						return false, err
-					}
-					*row = next
-				}
+				*row = next
 			}
 			// A dip plus a lagging longer expiry mimics nodeClientRenewed and would
 			// undo a master shorten once the freeze lifts (#6228).
@@ -1427,10 +1349,6 @@ func (s *InboundService) setRemoteTrafficLocked(nodeID int, snap *runtime.Traffi
 
 	if err := clearSyncOrphanMarks(tx); err != nil {
 		logger.Warning("setRemoteTraffic: clear orphan marks failed:", err)
-	}
-
-	if err := liftActivatedClientRecordExpiries(tx); err != nil {
-		logger.Warning("setRemoteTraffic: lift activated expiries failed:", err)
 	}
 
 	if err := tx.Commit().Error; err != nil {

@@ -106,13 +106,7 @@ func (a *ClientController) list(c *gin.Context) {
 }
 
 func (a *ClientController) renewalPreview(c *gin.Context) {
-	var request service.ClientRenewalPreviewRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		jsonObj(c, nil, err)
-		return
-	}
-	preview, err := a.clientService.PreviewRenewal(request, &a.settingService)
-	jsonObj(c, preview, err)
+	c.JSON(410, gin.H{"success": false, "msg": "Client expiry and renewal have been retired"})
 }
 
 func (a *ClientController) listPaged(c *gin.Context) {

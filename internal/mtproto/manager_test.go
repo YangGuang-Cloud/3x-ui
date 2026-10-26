@@ -45,8 +45,8 @@ func TestInstanceFromInbound(t *testing.T) {
 	if inst.Secrets[0].QuotaBytes != 1073741824 {
 		t.Fatalf("totalGB must map to the byte quota, got %d", inst.Secrets[0].QuotaBytes)
 	}
-	if inst.Secrets[0].ExpiresUnix != 1893456000 {
-		t.Fatalf("expiryTime (ms) must map to a unix-second deadline, got %d", inst.Secrets[0].ExpiresUnix)
+	if inst.Secrets[0].ExpiresUnix != 0 {
+		t.Fatalf("retired client expiry must not reach sidecar, got %d", inst.Secrets[0].ExpiresUnix)
 	}
 	if inst.Port != 8443 || inst.Id != 3 {
 		t.Fatalf("bad instance %+v", inst)

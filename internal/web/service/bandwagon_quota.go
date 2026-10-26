@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -63,10 +62,9 @@ func (s *InboundService) reconcileBandwagonQuotas(tx *gorm.DB, batch *trafficMut
 	if err != nil {
 		return err
 	}
-	now := time.Now().UnixMilli()
 	for _, row := range rows {
 		exhausted := row.TotalGB > 0 && row.Used >= row.TotalGB
-		valid := row.Enable && (row.ExpiryTime <= 0 || row.ExpiryTime > now)
+		valid := row.Enable
 		if !valid {
 			continue
 		}

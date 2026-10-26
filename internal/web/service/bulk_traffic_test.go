@@ -99,14 +99,14 @@ func TestDelDepletedRemovesOnlyDepleted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DelDepleted: %v", err)
 	}
-	if deleted != 2 {
-		t.Fatalf("expected 2 deleted (alice traffic-depleted, carol expired), got %d", deleted)
+	if deleted != 1 {
+		t.Fatalf("expected only traffic-depleted alice deleted, got %d", deleted)
 	}
 
 	if _, err := svc.GetRecordByEmail(nil, "bob@x"); err != nil {
 		t.Fatalf("bob should survive: %v", err)
 	}
-	for _, e := range []string{"alice@x", "carol@x"} {
+	for _, e := range []string{"alice@x"} {
 		if _, err := svc.GetRecordByEmail(nil, e); err == nil {
 			t.Fatalf("%s should be deleted", e)
 		}
@@ -114,8 +114,8 @@ func TestDelDepletedRemovesOnlyDepleted(t *testing.T) {
 
 	reloaded, _ := inboundSvc.GetInbound(ib.Id)
 	jsonClients, _ := inboundSvc.GetClients(reloaded)
-	if len(jsonClients) != 1 || jsonClients[0].Email != "bob@x" {
-		t.Fatalf("settings JSON should contain only bob, got %d clients", len(jsonClients))
+	if len(jsonClients) != 2 {
+		t.Fatalf("settings JSON should retain bob and carol, got %d clients", len(jsonClients))
 	}
 }
 

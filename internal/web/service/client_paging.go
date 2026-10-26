@@ -216,13 +216,11 @@ func (q clientQuery) from() *gorm.DB {
 }
 
 func (q clientQuery) depletedExpr() string {
-	return "((c.total_gb > 0 AND " + q.usedExpr + " >= c.total_gb)" +
-		" OR (c.expiry_time > 0 AND c.expiry_time <= " + sqlInt(q.nowMs) + "))"
+	return "(c.total_gb > 0 AND " + q.usedExpr + " >= c.total_gb)"
 }
 
 func (q clientQuery) nearDepletionExpr() string {
-	return "((c.expiry_time > 0 AND c.expiry_time - " + sqlInt(q.nowMs) + " < " + sqlInt(q.expireDiffMs) + ")" +
-		" OR (c.total_gb > 0 AND c.total_gb - " + q.usedExpr + " < " + sqlInt(q.trafficDiffBytes) + "))"
+	return "(c.total_gb > 0 AND c.total_gb - " + q.usedExpr + " < " + sqlInt(q.trafficDiffBytes) + ")"
 }
 
 func (q clientQuery) expiringExpr() string {

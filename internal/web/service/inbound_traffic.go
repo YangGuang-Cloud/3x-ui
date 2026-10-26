@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,9 +20,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// A client with a renewal day set auto-renews too, so it must not read as
-// depleted — otherwise the operator's purge deletes it between cycles (#6239).
-const depletedClientsClause = "reset = 0 and reset_day = 0 and reset_weekday = 0 and ((total > 0 and up + down >= total) or (expiry_time > 0 and expiry_time <= ?))"
+// Preserve accounts carrying legacy renewal metadata during bulk purge.
+// These fields are archival only; no expiry or renewal scheduler executes them.
+const depletedClientsClause = "reset = 0 and reset_day = 0 and reset_weekday = 0 and (total > 0 and up + down >= total)"
 
 func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (needRestart bool, clientsDisabled bool, err error) {
 	var disabledNodeIDs []int
@@ -70,13 +69,6 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 	)
 	batch := newTrafficMutationBatch()
 	err := db.Transaction(func(tx *gorm.DB) error {
-		needRestart0, count, err := s.autoRenewClients(tx, batch)
-		if err != nil {
-			return fmt.Errorf("renew clients: %w", err)
-		}
-		if count > 0 {
-			logger.Debugf("%v clients renewed", count)
-		}
 
 		if err := s.reconcileBandwagonQuotas(tx, batch); err != nil {
 			return err
@@ -101,7 +93,7 @@ func (s *InboundService) addTrafficLocked(inboundTraffics []*xray.Traffic, clien
 		if err := batch.markNodesTx(tx); err != nil {
 			return err
 		}
-		needRestart = needRestart0 || needRestart1 || needRestart2
+		needRestart = needRestart1 || needRestart2
 		clientsDisabled = disabledClientsCount > 0
 		for _, plan := range batch.localPlans {
 			if plan.action == trafficRemoveUser {
@@ -177,11 +169,6 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 		return nil
 	}
 
-	dbClientTraffics, convertedExpiryByEmail, err := s.adjustTraffics(tx, dbClientTraffics)
-	if err != nil {
-		return err
-	}
-
 	// Index by email for O(N) merge.
 	trafficByEmail := make(map[string]*xray.ClientTraffic, len(traffics))
 	for i := range traffics {
@@ -210,20 +197,6 @@ func (s *InboundService) addClientTraffic(tx *gorm.DB, traffics []*xray.ClientTr
 			t.Up, t.Down, now, ct.Email,
 		).Error; err != nil {
 			return fmt.Errorf("update traffic for %s: %w", ct.Email, err)
-		}
-	}
-
-	// adjustTraffics converts delayed-start rows (negative ExpiryTime → absolute
-	// deadline) in-memory. Persist that conversion now since the traffic UPDATE
-	// above only touches up/down/last_online. Only converted emails are written:
-	// updating every polled row issued one no-op UPDATE per active client per
-	// poll. Sorted order keeps concurrent writers lock-compatible on Postgres.
-	for _, email := range slices.Sorted(maps.Keys(convertedExpiryByEmail)) {
-		if err = tx.Exec(
-			`UPDATE client_traffics SET expiry_time = ? WHERE email = ? AND expiry_time < 0`,
-			convertedExpiryByEmail[email], email,
-		).Error; err != nil {
-			return fmt.Errorf("update expiry time for %s: %w", email, err)
 		}
 	}
 
@@ -268,109 +241,6 @@ func canonicalizeClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic) ([]*
 	return result, nil
 }
 
-func (s *InboundService) adjustTraffics(tx *gorm.DB, dbClientTraffics []*xray.ClientTraffic) ([]*xray.ClientTraffic, map[string]int64, error) {
-	now := time.Now().UnixMilli()
-
-	// "Start After First Use" stores a negative expiry (the duration). On the
-	// first traffic tick it becomes an absolute deadline of now+duration. Compute
-	// it once per email so every inbound the client is attached to lands on the
-	// same value (recomputing per inbound would skip all but the first one).
-	newExpiryByEmail := make(map[string]int64, len(dbClientTraffics))
-	for traffic_index := range dbClientTraffics {
-		if dbClientTraffics[traffic_index].ExpiryTime < 0 {
-			newExpiryByEmail[dbClientTraffics[traffic_index].Email] = now - dbClientTraffics[traffic_index].ExpiryTime
-		}
-	}
-	if len(newExpiryByEmail) == 0 {
-		return dbClientTraffics, nil, nil
-	}
-
-	delayedEmails := make([]string, 0, len(newExpiryByEmail))
-	for email := range newExpiryByEmail {
-		delayedEmails = append(delayedEmails, email)
-	}
-
-	// Resolve the owning inbounds through the client_inbounds link, which is
-	// authoritative. client_traffics.inbound_id goes stale when an inbound is
-	// deleted and recreated, which would leave the negative expiry unconverted.
-	var inboundIds []int
-	err := tx.Table("client_inbounds").
-		Joins("JOIN clients ON clients.id = client_inbounds.client_id").
-		Where("clients.email IN (?)", delayedEmails).
-		Distinct().
-		Pluck("client_inbounds.inbound_id", &inboundIds).Error
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(inboundIds) == 0 {
-		return dbClientTraffics, nil, nil
-	}
-
-	var inbounds []*model.Inbound
-	err = tx.Model(model.Inbound{}).Where("id IN (?)", inboundIds).Find(&inbounds).Error
-	if err != nil {
-		return nil, nil, err
-	}
-	for inbound_index := range inbounds {
-		settings := map[string]any{}
-		_ = json.Unmarshal([]byte(inbounds[inbound_index].Settings), &settings)
-		clients, ok := settings["clients"].([]any)
-		if ok {
-			var newClients []any
-			for client_index := range clients {
-				c := clients[client_index].(map[string]any)
-				email, _ := c["email"].(string)
-				if newExpiry, ok := newExpiryByEmail[email]; ok {
-					c["expiryTime"] = newExpiry
-					c["updated_at"] = now
-				}
-				if _, ok := c["created_at"]; !ok {
-					c["created_at"] = now
-				}
-				if _, ok := c["updated_at"]; !ok {
-					c["updated_at"] = now
-				}
-				newClients = append(newClients, any(c))
-			}
-			settings["clients"] = newClients
-			modifiedSettings, err := json.MarshalIndent(settings, "", "  ")
-			if err != nil {
-				return nil, nil, err
-			}
-
-			inbounds[inbound_index].Settings = string(modifiedSettings)
-		}
-	}
-
-	for traffic_index := range dbClientTraffics {
-		if newExpiry, ok := newExpiryByEmail[dbClientTraffics[traffic_index].Email]; ok {
-			dbClientTraffics[traffic_index].ExpiryTime = newExpiry
-		}
-	}
-
-	err = tx.Save(inbounds).Error
-	if err != nil {
-		logger.Warning("AddClientTraffic update inbounds ", err)
-		logger.Error(inbounds)
-	} else {
-		for _, ib := range inbounds {
-			if ib == nil {
-				continue
-			}
-			cs, gcErr := s.GetClients(ib)
-			if gcErr != nil {
-				logger.Warning("AddClientTraffic sync clients: GetClients failed", gcErr)
-				continue
-			}
-			if syncErr := s.clientService.SyncInbound(tx, ib.Id, cs); syncErr != nil {
-				logger.Warning("AddClientTraffic sync clients: SyncInbound failed", syncErr)
-			}
-		}
-	}
-
-	return dbClientTraffics, newExpiryByEmail, nil
-}
-
 // apiUserFromClient prepares a stored client object for the runtime AddUser
 // call. The copy matters twice over: the stored object keeps being mutated and
 // marshalled back into the inbound's settings, which must not gain an API-only
@@ -386,203 +256,6 @@ func apiUserFromClient(client map[string]any, cipher string) map[string]any {
 		user["cipher"] = cipher
 	}
 	return user
-}
-
-// Candidates and renewals are not the same set: a skipped candidate keeps its
-// counters, so only the clients actually reset may lose their cross-panel rows.
-func (s *InboundService) autoRenewClients(tx *gorm.DB, mutationBatch *trafficMutationBatch) (bool, int64, error) {
-	// check for time expired
-	var traffics []*xray.ClientTraffic
-	now := time.Now().Unix() * 1000
-	var err error
-
-	// Filter to clients that have at least one local inbound. Using
-	// client_traffics.inbound_id is wrong: it goes stale after an inbound is
-	// deleted/recreated and always points to the first inbound the client was
-	// attached to, so it could be a node inbound even when the client also has
-	// local inbounds. The email-based join through client_inbounds is authoritative.
-	err = tx.Model(xray.ClientTraffic{}).
-		Where("(reset > 0 or reset_day > 0 or reset_weekday > 0) and expiry_time > 0 and expiry_time <= ?", now).
-		// A prepaid plan stops itself: once as many renewals have fired as the
-		// operator allowed, the client is left to expire like any other.
-		Where("reset_max <= 0 or reset_count < reset_max").
-		Where("email IN (?)", tx.Table("client_inbounds ci").
-			Select("c.email").
-			Joins("JOIN clients c ON c.id = ci.client_id").
-			Joins("JOIN inbounds i ON i.id = ci.inbound_id").
-			Where("i.node_id IS NULL")).
-		Find(&traffics).Error
-	if err != nil {
-		return false, 0, err
-	}
-	// return if there is no client to renew
-	if len(traffics) == 0 {
-		return false, 0, nil
-	}
-
-	renewLocation, locErr := (&SettingService{}).GetTimeLocation()
-	if locErr != nil || renewLocation == nil {
-		// Falling back to UTC keeps renewals happening; the alternative is
-		// skipping them entirely because a setting could not be read.
-		logger.Warning("autoRenewClients: could not read the panel time zone, using UTC:", locErr)
-		renewLocation = time.UTC
-	}
-
-	var inbound_ids []int
-	var inbounds []*model.Inbound
-	needRestart := false
-	type inboundClientKey struct {
-		inboundID int
-		email     string
-	}
-	var clientsToAdd []struct {
-		inbound model.Inbound
-		client  map[string]any
-	}
-	clientsToAddSet := make(map[inboundClientKey]struct{})
-
-	// Resolve the inbounds to renew through the client_inbounds link rather than
-	// client_traffics.inbound_id, which goes stale after an inbound is deleted and
-	// recreated and would otherwise skip the renew entirely.
-	renewEmails := make([]string, 0, len(traffics))
-	for _, traffic := range traffics {
-		renewEmails = append(renewEmails, traffic.Email)
-	}
-	for _, batch := range chunkStrings(renewEmails, sqliteMaxVars) {
-		var ids []int
-		if err = tx.Table("client_inbounds").
-			Joins("JOIN clients ON clients.id = client_inbounds.client_id").
-			Where("clients.email IN ?", batch).
-			Distinct().
-			Pluck("client_inbounds.inbound_id", &ids).Error; err != nil {
-			return false, 0, err
-		}
-		inbound_ids = append(inbound_ids, ids...)
-	}
-	// Dedupe so an inbound hosting N expired clients is fetched and saved once
-	// per tick instead of N times across chunk boundaries.
-	inbound_ids = uniqueInts(inbound_ids)
-	// Chunked to stay under SQLite's bind-variable limit when many inbounds
-	// are touched in a single tick.
-	for _, batch := range chunkInts(inbound_ids, sqliteMaxVars) {
-		var page []*model.Inbound
-		if err = tx.Model(model.Inbound{}).Where("id IN ?", batch).Find(&page).Error; err != nil {
-			return false, 0, err
-		}
-		inbounds = append(inbounds, page...)
-	}
-	// Index the expired traffics by email so each client is an O(1) lookup
-	// instead of a linear scan of every expired row (O(clients × expired) per
-	// inbound, quadratic at scale). Pointers keep the in-place mutation below.
-	trafficByEmail := make(map[string]*xray.ClientTraffic, len(traffics))
-	// Keep the pre-renewal quota state: the shared pointer becomes enabled while
-	// processing the first inbound, while an already-enabled row paired with
-	// disabled settings represents an operator-disabled client we must preserve.
-	trafficWasEnabled := make(map[string]bool, len(traffics))
-	for i := range traffics {
-		trafficByEmail[traffics[i].Email] = traffics[i]
-		trafficWasEnabled[traffics[i].Email] = traffics[i].Enable
-	}
-	renewedEmails := make([]string, 0, len(traffics))
-	for inbound_index := range inbounds {
-		settings := map[string]any{}
-		_ = json.Unmarshal([]byte(inbounds[inbound_index].Settings), &settings)
-		clients, _ := settings["clients"].([]any)
-		if len(clients) == 0 {
-			continue
-		}
-		cipher := ""
-		if inbounds[inbound_index].Protocol == model.Shadowsocks {
-			cipher, _ = settings["method"].(string)
-		}
-		for client_index := range clients {
-			c := clients[client_index].(map[string]any)
-			email, _ := c["email"].(string)
-			traffic, ok := trafficByEmail[email]
-			if !ok {
-				continue
-			}
-			// One allowance per period, not per tick: a client away for three
-			// cycles must not catch up three of them against a prepaid cap.
-			newExpiryTime, renewals := catchUpClientRenewal(traffic, now, renewLocation)
-			if renewals > 0 {
-				traffic.ExpiryTime = newExpiryTime
-				traffic.ResetCount += renewals
-			}
-			c["expiryTime"] = traffic.ExpiryTime
-			if traffic.ExpiryTime <= now {
-				// Cap ran out mid-catch-up and the client is still expired: enabling it
-				// for disableInvalidClients to undo adds and removes an xray user for nothing.
-				clients[client_index] = any(c)
-				continue
-			}
-			if renewals > 0 {
-				traffic.Down = 0
-				traffic.Up = 0
-				renewedEmails = append(renewedEmails, email)
-			}
-			if !trafficWasEnabled[email] {
-				traffic.Enable = true
-				c["enable"] = true
-				key := inboundClientKey{inboundID: inbounds[inbound_index].Id, email: email}
-				if _, planned := clientsToAddSet[key]; !planned {
-					clientsToAddSet[key] = struct{}{}
-					clientsToAdd = append(clientsToAdd,
-						struct {
-							inbound model.Inbound
-							client  map[string]any
-						}{
-							inbound: *inbounds[inbound_index],
-							client:  apiUserFromClient(c, cipher),
-						})
-				}
-			}
-			clients[client_index] = any(c)
-		}
-		settings["clients"] = clients
-		newSettings, err := json.MarshalIndent(settings, "", "  ")
-		if err != nil {
-			return false, 0, err
-		}
-		inbounds[inbound_index].Settings = string(newSettings)
-	}
-	err = tx.Save(inbounds).Error
-	if err != nil {
-		return false, 0, err
-	}
-	for _, ib := range inbounds {
-		if ib == nil {
-			continue
-		}
-		cs, gcErr := s.GetClients(ib)
-		if gcErr != nil {
-			logger.Warning("autoRenewClients sync clients: GetClients failed", gcErr)
-			continue
-		}
-		if syncErr := s.clientService.SyncInbound(tx, ib.Id, cs); syncErr != nil {
-			logger.Warning("autoRenewClients sync clients: SyncInbound failed", syncErr)
-		}
-	}
-	err = tx.Save(traffics).Error
-	if err != nil {
-		return false, 0, err
-	}
-	// A renewed client starts a fresh quota window: drop the cross-panel rows
-	// too, or the stale pushed totals would re-deplete it immediately.
-	if err = clearGlobalTraffic(tx, renewedEmails...); err != nil {
-		return false, 0, err
-	}
-	mutationBatch.renewedEmails = append(mutationBatch.renewedEmails, renewedEmails...)
-	for _, clientToAdd := range clientsToAdd {
-		if clientToAdd.inbound.NodeID != nil {
-			mutationBatch.addNode(*clientToAdd.inbound.NodeID)
-			continue
-		}
-		mutationBatch.localPlans = append(mutationBatch.localPlans, trafficLocalApplyPlan{
-			action: trafficAddUser, inbound: clientToAdd.inbound, client: clientToAdd.client,
-		})
-	}
-	return needRestart, int64(len(renewedEmails)), nil
 }
 
 // AddClientStat inserts a per-client accounting row, or refreshes the
@@ -914,14 +587,13 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 	err = db.Transaction(func(tx *gorm.DB) error {
 		// Collect depleted emails globally — a shared-email row owned by one
 		// inbound depletes every sibling that lists the email.
-		now := time.Now().Unix() * 1000
 		depletedClause, err := cycleSafePurgeClause(tx)
 		if err != nil {
 			return err
 		}
 		var depletedRows []xray.ClientTraffic
 		if err := tx.Model(xray.ClientTraffic{}).
-			Where(depletedClause, now).
+			Where(depletedClause).
 			Find(&depletedRows).Error; err != nil {
 			return err
 		}
@@ -1020,7 +692,7 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 		// Drop now-orphaned rows. With id >= 0, a row is safe to drop only when
 		// no out-of-scope inbound still references the email.
 		if id < 0 {
-			return tx.Where(depletedClause, now).Delete(xray.ClientTraffic{}).Error
+			return tx.Where(depletedClause).Delete(xray.ClientTraffic{}).Error
 		}
 		emails := make([]string, 0, len(depletedEmails))
 		for e := range depletedEmails {

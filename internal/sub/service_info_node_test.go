@@ -160,16 +160,15 @@ func TestSubService_InfoNode_Expired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubs error: %v", err)
 	}
-	if len(links) != 1 {
-		t.Fatalf("expected ONLY 1 link (dummy expired node), got %d: %v", len(links), links)
+	if len(links) != 2 {
+		t.Fatalf("retired expiry suppressed real links: %v", links)
 	}
-	if !strings.HasPrefix(links[0], "socks://127.0.0.1:1080#") {
-		t.Fatalf("expired link must be dummy socks node, got: %q", links[0])
+	for _, link := range links {
+		if strings.Contains(link, "Expired") {
+			t.Fatalf("retired expiry still advertised: %s", link)
+		}
 	}
-	decodedRemark, _ := url.QueryUnescape(strings.TrimPrefix(links[0], "socks://127.0.0.1:1080#"))
-	if !strings.Contains(decodedRemark, "Expired") || !strings.Contains(decodedRemark, "exp@test.com") {
-		t.Fatalf("expected expired remark, got: %q", decodedRemark)
-	}
+
 }
 
 func TestSubService_InfoNode_TrafficDepleted(t *testing.T) {

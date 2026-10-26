@@ -42,6 +42,8 @@ export type ProviderStatus = {
   cycle: Cycle | null;
   history: Cycle[];
   clients: { clientId: number; up: number; down: number }[];
+  presence?: { clientId: number; onlineSeconds: number; onlineIPs: number }[];
+  presenceAvailable?: boolean;
   total: number;
   stale: boolean;
   awaitingReset: boolean;
@@ -303,5 +305,35 @@ export default function BandwagonCard() {
         </Form>
       </Modal>
     </Card>
+  );
+}
+
+export function ClientPresenceMetric({
+  status,
+  clientId,
+  metric,
+}: {
+  status?: ProviderStatus;
+  clientId: number;
+  metric: 'duration' | 'ips';
+}) {
+  const row = status?.presence?.find((c) => c.clientId === clientId);
+  if (metric === 'ips')
+    return (
+      <Tooltip title="核心当前观测到的来源 IP 数；同一网络的多台设备可能共用一个 IP。">
+        <span>{status?.presenceAvailable ? (row?.onlineIPs ?? 0) : '—'}</span>
+      </Tooltip>
+    );
+  if (!status?.config.enabled || !status.cycle) return <span>—</span>;
+  const seconds = row?.onlineSeconds ?? 0;
+  const hours = Math.floor(seconds / 3600),
+    minutes = Math.floor((seconds % 3600) / 60),
+    rest = seconds % 60;
+  return (
+    <Tooltip title="搬瓦工本账期累计在线时长，按账号计算，不按 IP 数叠加；按检测结果累计，离线或检测中断时暂停。">
+      <span>
+        {hours}小时 {minutes}分 {rest}秒
+      </span>
+    </Tooltip>
   );
 }

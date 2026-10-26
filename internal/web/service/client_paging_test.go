@@ -154,27 +154,27 @@ func TestListPagedFilters(t *testing.T) {
 		{
 			name:   "depleted bucket covers quota and expiry",
 			params: ClientPageParams{PageSize: 50, Filter: "depleted"},
-			want:   []string{"charlie@x", "delta@x", "foxtrot@x"},
+			want:   []string{"charlie@x"},
 		},
 		{
 			name:   "deactive bucket leaves a disabled client that ran out to depleted",
 			params: ClientPageParams{PageSize: 50, Filter: "deactive"},
-			want:   []string{"echo@x"},
+			want:   []string{"echo@x", "foxtrot@x"},
 		},
 		{
 			name:   "expiring bucket covers near expiry and near quota",
 			params: ClientPageParams{PageSize: 50, Filter: "expiring"},
-			want:   []string{"golf@x", "hotel@x"},
+			want:   []string{"hotel@x"},
 		},
 		{
 			name:   "active bucket leaves clients near depletion to expiring",
 			params: ClientPageParams{PageSize: 50, Filter: "active"},
-			want:   []string{"alpha@x", "bravo@x", "india@x", "juliet@x", "kilo_1@x", "kilo1@x"},
+			want:   []string{"alpha@x", "bravo@x", "delta@x", "golf@x", "india@x", "juliet@x", "kilo_1@x", "kilo1@x"},
 		},
 		{
 			name:   "buckets are ORed",
 			params: ClientPageParams{PageSize: 50, Filter: "depleted,expiring"},
-			want:   []string{"charlie@x", "delta@x", "foxtrot@x", "golf@x", "hotel@x"},
+			want:   []string{"charlie@x", "hotel@x"},
 		},
 		{
 			name:   "unknown bucket keeps matching everything",
@@ -264,7 +264,7 @@ func TestListPagedFilters(t *testing.T) {
 		{
 			name:   "filters combine with AND",
 			params: ClientPageParams{PageSize: 50, Filter: "depleted", Protocol: "trojan"},
-			want:   []string{"charlie@x", "foxtrot@x"},
+			want:   []string{"charlie@x"},
 		},
 	}
 
@@ -457,16 +457,16 @@ func TestListPagedSummary(t *testing.T) {
 		if s.Total != 12 {
 			t.Fatalf("total = %d, want 12", s.Total)
 		}
-		if s.DepletedCount != 3 {
+		if s.DepletedCount != 1 {
 			t.Fatalf("depletedCount = %d, want 3", s.DepletedCount)
 		}
-		if s.ExpiringCount != 2 {
+		if s.ExpiringCount != 1 {
 			t.Fatalf("expiringCount = %d, want 2", s.ExpiringCount)
 		}
-		if s.DeactiveCount != 1 {
+		if s.DeactiveCount != 2 {
 			t.Fatalf("deactiveCount = %d, want 1", s.DeactiveCount)
 		}
-		if s.Active != 6 {
+		if s.Active != 8 {
 			t.Fatalf("active = %d, want 6", s.Active)
 		}
 	})
@@ -491,13 +491,13 @@ func TestListPagedSummary(t *testing.T) {
 	})
 
 	t.Run("bucket lists carry the matching emails", func(t *testing.T) {
-		if want := []string{"charlie@x", "delta@x", "foxtrot@x"}; !slices.Equal(s.Depleted, want) {
+		if want := []string{"charlie@x"}; !slices.Equal(s.Depleted, want) {
 			t.Fatalf("depleted = %v, want %v", s.Depleted, want)
 		}
-		if want := []string{"golf@x", "hotel@x"}; !slices.Equal(s.Expiring, want) {
+		if want := []string{"hotel@x"}; !slices.Equal(s.Expiring, want) {
 			t.Fatalf("expiring = %v, want %v", s.Expiring, want)
 		}
-		if want := []string{"echo@x"}; !slices.Equal(s.Deactive, want) {
+		if want := []string{"echo@x", "foxtrot@x"}; !slices.Equal(s.Deactive, want) {
 			t.Fatalf("deactive = %v, want %v", s.Deactive, want)
 		}
 	})
@@ -512,7 +512,10 @@ func TestListPagedSummaryEmailListsAreCapped(t *testing.T) {
 	for i := range n {
 		rec := model.ClientRecord{Email: "bulk-" + strconv.Itoa(i) + "@x", Enable: true, TotalGB: pagingGB, ExpiryTime: past}
 		if err := db.Create(&rec).Error; err != nil {
-			t.Fatalf("create client %d: %v", i, err)
+			t.Fatal(err)
+		}
+		if err := db.Create(&xray.ClientTraffic{Email: rec.Email, Total: pagingGB, Up: pagingGB}).Error; err != nil {
+			t.Fatal(err)
 		}
 	}
 
@@ -544,11 +547,11 @@ func TestListPagedGlobalTrafficOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPaged: %v", err)
 	}
-	want := []string{"bravo@x", "charlie@x", "delta@x", "foxtrot@x"}
+	want := []string{"bravo@x", "charlie@x"}
 	if got := pagedEmails(resp.Items); !slices.Equal(got, want) {
 		t.Fatalf("depleted = %v, want %v", got, want)
 	}
-	if resp.Summary.DepletedCount != 4 {
+	if resp.Summary.DepletedCount != 2 {
 		t.Fatalf("depletedCount = %d, want 4", resp.Summary.DepletedCount)
 	}
 	for _, it := range resp.Items {

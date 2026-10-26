@@ -50,7 +50,7 @@ export default function ClientBulkAdjustModal({
   async function handleOk() {
     const values = methods.getValues();
     const validated = ClientBulkAdjustFormSchema.safeParse({
-      addDays: Math.trunc(Number(values.addDays) || 0),
+      addDays: 0,
       addGB: Number(values.addGB) || 0,
       flow: values.flow,
       limitHwid:
@@ -110,9 +110,6 @@ export default function ClientBulkAdjustModal({
         />
         <FormProvider {...methods}>
           <Form layout="vertical">
-            <FormField name="addDays" label={t('pages.clients.addDays')}>
-              <InputNumber style={{ width: '100%' }} step={1} precision={0} />
-            </FormField>
             <FormField name="addGB" label={t('pages.clients.addTrafficGB')}>
               <InputNumber style={{ width: '100%' }} step={1} />
             </FormField>

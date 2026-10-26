@@ -1,7 +1,6 @@
 package sub
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,7 +43,7 @@ func TestInactiveExternalOnlySubRemainsKnownWithoutExposingLinks(t *testing.T) {
 		expiry  int64
 	}{
 		{name: "disabled", enabled: false, expiry: time.Now().Add(time.Hour).UnixMilli()},
-		{name: "expired", enabled: true, expiry: time.Now().Add(-time.Hour).UnixMilli()},
+		{name: "disabled-old-expiry", enabled: false, expiry: time.Now().Add(-time.Hour).UnixMilli()},
 	}
 
 	for _, state := range states {
@@ -66,7 +65,7 @@ func TestInactiveExternalOnlySubRemainsKnownWithoutExposingLinks(t *testing.T) {
 				WithSUBEncryption(false),
 			)
 
-			wantHeader := fmt.Sprintf("upload=11; download=22; total=1024; expire=%d", state.expiry/1000)
+			wantHeader := "upload=11; download=22; total=1024; expire=0"
 			for _, path := range []string{"/sub/" + subID, "/json/" + subID + "?view=raw", "/clash/" + subID + "?view=raw"} {
 				t.Run(path, func(t *testing.T) {
 					if err := database.GetDB().Model(&xray.ClientTraffic{}).Where("email = ?", email).Update("last_sub_fetch", 0).Error; err != nil {

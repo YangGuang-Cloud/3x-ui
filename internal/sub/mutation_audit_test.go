@@ -370,7 +370,7 @@ func TestGetClientExternalLinksBySubId(t *testing.T) {
 	if len(expiredOut) != 1 {
 		t.Fatalf("expired client entries = %d, want 1", len(expiredOut))
 	}
-	if !expiredOut[0].Enable || expiredOut[0].Active {
+	if !expiredOut[0].Enable || !expiredOut[0].Active {
 		t.Fatalf("expired owner state = enable:%v active:%v", expiredOut[0].Enable, expiredOut[0].Active)
 	}
 }

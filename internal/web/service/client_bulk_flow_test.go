@@ -3,11 +3,9 @@ package service
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
-	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 )
 
 // mkInboundStream is mkInbound with explicit stream settings, needed to make an
@@ -161,63 +159,6 @@ func TestBulkAdjust_NoDirectiveErrors(t *testing.T) {
 // days/traffic delta AND a flow directive, the days/traffic change must still be
 // persisted to ClientTraffic (not just the inbound JSON / ClientRecord) and the
 // client must count as adjusted, while the unhonored flow is reported separately.
-func TestBulkAdjust_DaysApplyDespiteIneligibleFlow(t *testing.T) {
-	setupBulkDB(t)
-	svc := &ClientService{}
-	inboundSvc := &InboundService{}
-
-	const day = int64(24 * 60 * 60 * 1000)
-	const gb = int64(1) << 30
-	baseExpiry := time.Now().UnixMilli() + 30*day
-	baseTotal := 10 * gb
-
-	clients := []model.Client{
-		{Email: "mix@x", ID: "44444444-4444-4444-4444-444444444444", SubID: "mix", Enable: true, ExpiryTime: baseExpiry, TotalGB: baseTotal},
-	}
-	ib := mkInboundStream(t, 30201, model.VLESS, clientsSettings(t, clients), wsStream)
-	if err := svc.SyncInbound(nil, ib.Id, clients); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	// ClientTraffic is the store the enforcement job reads; seed it to match.
-	if err := database.GetDB().Create(&xray.ClientTraffic{Email: "mix@x", Enable: true, ExpiryTime: baseExpiry, Total: baseTotal}).Error; err != nil {
-		t.Fatalf("seed traffic: %v", err)
-	}
-
-	res, _, err := svc.BulkAdjust(inboundSvc, []string{"mix@x"}, 7, gb, "xtls-rprx-vision", nil, "")
-	if err != nil {
-		t.Fatalf("BulkAdjust: %v", err)
-	}
-	if res.Adjusted != 1 {
-		t.Fatalf("days/traffic should still be applied: Adjusted=%d skipped=%v", res.Adjusted, res.Skipped)
-	}
-	if len(res.Skipped) != 1 || res.Skipped[0].Email != "mix@x" {
-		t.Fatalf("expected mix@x reported for the unhonored flow, got %v", res.Skipped)
-	}
-
-	wantExpiry := baseExpiry + 7*day
-	wantTotal := baseTotal + gb
-
-	// ClientRecord (inbound-derived) advanced.
-	if rec, err := svc.GetRecordByEmail(nil, "mix@x"); err != nil {
-		t.Fatalf("record: %v", err)
-	} else if rec.ExpiryTime != wantExpiry || rec.TotalGB != wantTotal {
-		t.Fatalf("ClientRecord not advanced: expiry=%d total=%d", rec.ExpiryTime, rec.TotalGB)
-	}
-
-	// ClientTraffic advanced in lockstep — no divergence.
-	var ct xray.ClientTraffic
-	if err := database.GetDB().Where("email = ?", "mix@x").First(&ct).Error; err != nil {
-		t.Fatalf("traffic row: %v", err)
-	}
-	if ct.ExpiryTime != wantExpiry || ct.Total != wantTotal {
-		t.Fatalf("ClientTraffic diverged: expiry=%d total=%d, want expiry=%d total=%d", ct.ExpiryTime, ct.Total, wantExpiry, wantTotal)
-	}
-
-	// Flow left untouched on the ineligible inbound.
-	if got := flowOf(t, svc, "mix@x"); got != "" {
-		t.Fatalf("flow should stay empty on ineligible inbound, got %q", got)
-	}
-}
 
 // TestBulkAdjust_HwidLimit verifies setting and clearing HWID limit in bulk.
 func TestBulkAdjust_HwidLimit(t *testing.T) {
@@ -370,48 +311,6 @@ func TestBulkAdjust_AdTagIneligibleSkipped(t *testing.T) {
 // TestBulkAdjust_DaysApplyDespiteIneligibleAdTag verifies that when a non-MTProto
 // client is adjusted with both days and adTag, days are applied but adTag is not
 // written to ClientRecord and is reported as skipped.
-func TestBulkAdjust_DaysApplyDespiteIneligibleAdTag(t *testing.T) {
-	setupBulkDB(t)
-	svc := &ClientService{}
-	inboundSvc := &InboundService{}
-
-	const day = int64(24 * 60 * 60 * 1000)
-	baseExpiry := time.Now().UnixMilli() + 30*day
-
-	clients := []model.Client{
-		{Email: "vless-days@x", ID: "66666666-6666-6666-6666-666666666666", SubID: "vless-days", Enable: true, ExpiryTime: baseExpiry},
-	}
-	ib := mkInbound(t, 30601, model.VLESS, clientsSettings(t, clients))
-	if err := svc.SyncInbound(nil, ib.Id, clients); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := database.GetDB().Create(&xray.ClientTraffic{Email: "vless-days@x", Enable: true, ExpiryTime: baseExpiry}).Error; err != nil {
-		t.Fatalf("seed traffic: %v", err)
-	}
-
-	const tag1 = "0123456789abcdef0123456789abcdef"
-	res, _, err := svc.BulkAdjust(inboundSvc, []string{"vless-days@x"}, 7, 0, "", nil, tag1)
-	if err != nil {
-		t.Fatalf("BulkAdjust: %v", err)
-	}
-	if res.Adjusted != 1 {
-		t.Fatalf("days should still be applied: Adjusted=%d skipped=%v", res.Adjusted, res.Skipped)
-	}
-	if len(res.Skipped) != 1 || res.Skipped[0].Email != "vless-days@x" || res.Skipped[0].Reason != "adTag not supported on inbound" {
-		t.Fatalf("expected vless-days@x reported for unhonored adTag, got %v", res.Skipped)
-	}
-
-	rec, err := svc.GetRecordByEmail(nil, "vless-days@x")
-	if err != nil {
-		t.Fatalf("record: %v", err)
-	}
-	if rec.ExpiryTime != baseExpiry+7*day {
-		t.Fatalf("expiry time not advanced: got %d, want %d", rec.ExpiryTime, baseExpiry+7*day)
-	}
-	if rec.AdTag != "" {
-		t.Fatalf("adTag should remain empty on ClientRecord for non-MTProto, got %q", rec.AdTag)
-	}
-}
 
 // TestBulkAdjust_MixedMtprotoAndVless_AdTag verifies bulk adjust over a mixed
 // MTProto and VLESS selection.
@@ -474,43 +373,6 @@ func TestBulkAdjust_MixedMtprotoAndVless_AdTag(t *testing.T) {
 // TestBulkAdjust_UnchangedClientKeepsUpdatedAt pins the updated_at stamp to the
 // client that actually changed: an untouched client must not be re-stamped only
 // because a client earlier in the same inbound's array was adjusted.
-func TestBulkAdjust_UnchangedClientKeepsUpdatedAt(t *testing.T) {
-	setupBulkDB(t)
-	svc := &ClientService{}
-	inboundSvc := &InboundService{}
-
-	const day = int64(24 * 60 * 60 * 1000)
-	const seeded = int64(1600000000000)
-	baseExpiry := time.Now().UnixMilli() + 30*day
-
-	// chg@x is listed first and takes the expiry bump; keep@x has unlimited
-	// expiry on a ws inbound, so the same call changes nothing for it.
-	clients := []model.Client{
-		{Email: "chg@x", ID: "88888888-8888-8888-8888-888888888888", SubID: "chg", Enable: true, ExpiryTime: baseExpiry, UpdatedAt: seeded},
-		{Email: "keep@x", ID: "99999999-9999-9999-9999-999999999999", SubID: "keep", Enable: true, UpdatedAt: seeded},
-	}
-	ib := mkInboundStream(t, 30801, model.VLESS, clientsSettings(t, clients), wsStream)
-	if err := svc.SyncInbound(nil, ib.Id, clients); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	if err := database.GetDB().Create(&xray.ClientTraffic{Email: "chg@x", Enable: true, ExpiryTime: baseExpiry}).Error; err != nil {
-		t.Fatalf("seed traffic: %v", err)
-	}
-
-	// The flow directive is what keeps keep@x in the plan; the ws inbound cannot
-	// carry it, so the directive is not itself a change for either client.
-	if _, _, err := svc.BulkAdjust(inboundSvc, emailsOf(clients), 7, 0, "xtls-rprx-vision", nil, ""); err != nil {
-		t.Fatalf("BulkAdjust: %v", err)
-	}
-
-	stamps := settingsUpdatedAt(t, inboundSvc, ib.Id)
-	if stamps["chg@x"] <= seeded {
-		t.Fatalf("adjusted client should be re-stamped, updated_at = %d", stamps["chg@x"])
-	}
-	if stamps["keep@x"] != seeded {
-		t.Fatalf("untouched client updated_at = %d, want %d — a sibling's change must not re-stamp it", stamps["keep@x"], seeded)
-	}
-}
 
 func settingsUpdatedAt(t *testing.T, inboundSvc *InboundService, inboundId int) map[string]int64 {
 	t.Helper()

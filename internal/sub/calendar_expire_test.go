@@ -83,10 +83,7 @@ func TestSubscriptionCalendarExpireInclusive(t *testing.T) {
 				t.Fatal(err)
 			}
 			router := newSubscriptionTestRouter(subscriptionTestRouterConfig{})
-			wantExpiry := expiry / 1000
-			if tt.wantSnap {
-				wantExpiry--
-			}
+			wantExpiry := int64(0)
 			wantHeader := fmt.Sprintf("upload=11; download=22; total=0; expire=%d", wantExpiry)
 			for _, path := range []string{"/sub/calendar", "/json/calendar", "/clash/calendar", "/mihomo/calendar", "/clash-legacy/calendar"} {
 				resp := httptest.NewRecorder()
@@ -110,7 +107,7 @@ func TestSubscriptionCalendarExpireInclusive(t *testing.T) {
 			if err := json.Unmarshal(resp.Body.Bytes(), &info); err != nil {
 				t.Fatal(err)
 			}
-			if info.Expire != expiry/1000 {
+			if info.Expire != 0 {
 				t.Fatalf("info cutoff=%d, want canonical %d", info.Expire, expiry/1000)
 			}
 			var client model.ClientRecord
@@ -170,7 +167,7 @@ func TestSubscriptionCalendarExpireInclusiveMixedClients(t *testing.T) {
 			for _, path := range []string{"/sub/mixed", "/json/mixed", "/clash/mixed"} {
 				resp := httptest.NewRecorder()
 				router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "http://sub.example.com"+path, nil))
-				if resp.Code != http.StatusOK || !strings.HasSuffix(resp.Header().Get("Subscription-Userinfo"), fmt.Sprintf("expire=%d", tt.wantExpiry)) {
+				if resp.Code != http.StatusOK || !strings.HasSuffix(resp.Header().Get("Subscription-Userinfo"), "expire=0") {
 					t.Fatalf("GET %s: status=%d userinfo=%q, want expire=%d", path, resp.Code, resp.Header().Get("Subscription-Userinfo"), tt.wantExpiry)
 				}
 			}
@@ -212,10 +209,7 @@ func TestSubscriptionCalendarExpireInclusiveSettingRoundTrip(t *testing.T) {
 		}
 		resp := httptest.NewRecorder()
 		router.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "http://sub.example.com/sub/toggle", nil))
-		want := expiry / 1000
-		if enabled {
-			want--
-		}
+		want := int64(0)
 		if got := resp.Header().Get("Subscription-Userinfo"); resp.Code != http.StatusOK || got != fmt.Sprintf("upload=0; download=0; total=0; expire=%d", want) {
 			t.Fatalf("enabled=%v: status=%d userinfo=%q, want expire=%d", enabled, resp.Code, got, want)
 		}
@@ -232,10 +226,8 @@ func TestSubscriptionCalendarExpireInclusiveFirstUseDuration(t *testing.T) {
 	if err := db.Create(&xray.ClientTraffic{Email: "first-use@e", ExpiryTime: duration, ResetDay: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
-	before := time.Now().UnixMilli()
 	agg, _ := (&SubService{}).AggregateTrafficByEmails([]string{"first-use@e"})
-	after := time.Now().UnixMilli()
-	if agg.ResetDay != 0 || agg.ExpiryTime < before-duration || agg.ExpiryTime > after-duration {
+	if agg.ResetDay != 0 || agg.ExpiryTime != 0 {
 		t.Fatalf("first-use duration must not become a canonical calendar cutoff: %+v", agg)
 	}
 }

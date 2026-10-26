@@ -107,14 +107,6 @@ export default function ClientInfoModal({
 }: ClientInfoModalProps) {
   const { datepicker } = useDatepicker();
   const { t } = useTranslation();
-  const expiryLabel = (ts?: number) => {
-    if (!ts) return '∞';
-    if (ts < 0) {
-      const days = Math.round(ts / -86400000);
-      return `${t('pages.clients.delayedStart')}: ${days}d`;
-    }
-    return IntlUtil.formatDate(ts, datepicker);
-  };
   const dateLabel = (ts?: number) => (!ts || ts <= 0 ? '-' : IntlUtil.formatDate(ts, datepicker));
   const [messageApi, messageContextHolder] = message.useMessage();
   const [links, setLinks] = useState<string[]>([]);
@@ -434,21 +426,6 @@ export default function ClientInfoModal({
                   </td>
                 </tr>
                 <tr>
-                  <td>{t('pages.inbounds.expireDate')}</td>
-                  <td>
-                    {!client.expiryTime ? (
-                      <Tag color="purple">∞</Tag>
-                    ) : (
-                      <Tag color={client.expiryTime < 0 ? 'blue' : undefined}>
-                        {expiryLabel(client.expiryTime)}
-                      </Tag>
-                    )}
-                    {(client.expiryTime ?? 0) > 0 && (
-                      <span className="hint">{IntlUtil.formatRelativeTime(client.expiryTime)}</span>
-                    )}
-                  </td>
-                </tr>
-                <tr>
                   <td>{t('pages.clients.ipLimit')}</td>
                   <td>{!client.limitIp ? <Tag>∞</Tag> : <Tag>{client.limitIp}</Tag>}</td>
                 </tr>
@@ -466,20 +443,6 @@ export default function ClientInfoModal({
                     </Button>
                   </td>
                 </tr>
-                {(traffic?.resetMax ?? 0) > 0 && (
-                  <tr>
-                    <td>{t('pages.clients.renewsUsed')}</td>
-                    <td>
-                      <Tag
-                        color={
-                          (traffic?.resetCount ?? 0) >= (traffic?.resetMax ?? 0) ? 'red' : 'blue'
-                        }
-                      >
-                        {traffic?.resetCount ?? 0} / {traffic?.resetMax}
-                      </Tag>
-                    </td>
-                  </tr>
-                )}
                 <tr>
                   <td>{t('pages.clients.limitHwid')}</td>
                   <td>{!client.limitHwid ? <Tag>∞</Tag> : <Tag>{client.limitHwid}</Tag>}</td>

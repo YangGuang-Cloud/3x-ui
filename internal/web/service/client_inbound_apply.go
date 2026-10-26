@@ -1461,9 +1461,7 @@ func (s *ClientService) ResetClientIpLimitByEmail(inboundSvc *InboundService, cl
 }
 
 func (s *ClientService) ResetClientExpiryTimeByEmail(inboundSvc *InboundService, clientEmail string, expiry_time int64) (bool, error) {
-	return s.applyClientFieldByEmail(inboundSvc, clientEmail, func(c map[string]any) {
-		c["expiryTime"] = expiry_time
-	})
+	return false, common.NewError("client expiry and renewal have been retired")
 }
 
 func (s *ClientService) ResetClientTrafficLimitByEmail(inboundSvc *InboundService, clientEmail string, totalGB int) (bool, error) {

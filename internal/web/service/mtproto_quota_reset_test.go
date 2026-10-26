@@ -102,8 +102,8 @@ func TestPanelResetsZeroSidecarQuota(t *testing.T) {
 		if _, _, err := (&InboundService{}).AddTraffic(nil, nil); err != nil {
 			t.Fatalf("AddTraffic: %v", err)
 		}
-		if got := quotaResets(t, logPath); !slices.Equal(got, []string{"mtga"}) {
-			t.Fatalf("sidecar quota resets %v, want [mtga]", got)
+		if got := quotaResets(t, logPath); len(got) != 0 {
+			t.Fatalf("sidecar quota resets %v, want no reset from retired renewal", got)
 		}
 	})
 }

@@ -92,73 +92,13 @@ func TestAddClientTraffic_MatchesByEmail(t *testing.T) {
 // after an inbound delete+recreate), the conversion used to resolve no inbound and
 // silently skip, leaving the client perpetually "not started". The fix resolves the
 // owning inbound via the client_inbounds link instead.
-func TestAdjustTraffics_DelayedStartConvertsDespiteStaleInboundId(t *testing.T) {
-	dbDir := t.TempDir()
-	t.Setenv("XUI_DB_FOLDER", dbDir)
-	dbtest.InitDB(t, filepath.Join(dbDir, "x-ui.db"))
 
-	db := database.GetDB()
-
-	const email = "delayed-user"
-	const uid = "ce8d33df-3a64-4f10-8f9b-91c3a8e0d001"
-	const sevenDays = int64(7 * 86400000)
-
-	client := model.Client{Email: email, ID: uid, Auth: uid, Enable: true, ExpiryTime: -sevenDays}
-	inbound := &model.Inbound{
-		Tag: "vless-delayed", Enable: true, Port: 45001, Protocol: model.VLESS,
-		StreamSettings: `{"network":"tcp","security":"reality"}`,
-		Settings:       clientsSettings(t, []model.Client{client}),
-	}
-	if err := db.Create(inbound).Error; err != nil {
-		t.Fatalf("create inbound: %v", err)
-	}
-
-	svc := InboundService{}
-	if err := svc.clientService.SyncInbound(db, inbound.Id, []model.Client{client}); err != nil {
-		t.Fatalf("SyncInbound: %v", err)
-	}
-
-	// The email-keyed traffic row survives an inbound delete+recreate pointing at a
-	// dead inbound id; client_inbounds still links the client to the live inbound.
-	if err := db.Create(&xray.ClientTraffic{InboundId: 9999, Email: email, Enable: true, ExpiryTime: -sevenDays}).Error; err != nil {
-		t.Fatalf("create stale traffic row: %v", err)
-	}
-
-	before := time.Now().UnixMilli()
-	if err := svc.addClientTraffic(db, []*xray.ClientTraffic{{Email: email, Up: 100, Down: 200}}); err != nil {
-		t.Fatalf("addClientTraffic: %v", err)
-	}
-
-	var row xray.ClientTraffic
-	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", email).First(&row).Error; err != nil {
-		t.Fatalf("reload traffic row: %v", err)
-	}
-	if row.ExpiryTime <= 0 {
-		t.Fatalf("delayed-start expiry not converted: still %d (stale inbound_id skipped the conversion)", row.ExpiryTime)
-	}
-	if row.ExpiryTime < before+sevenDays-5000 || row.ExpiryTime > before+sevenDays+5000 {
-		t.Errorf("converted expiry = %d, want ~now+7d (%d)", row.ExpiryTime, before+sevenDays)
-	}
-
-	reloaded, err := svc.GetInbound(inbound.Id)
-	if err != nil {
-		t.Fatalf("GetInbound: %v", err)
-	}
-	cs, err := svc.GetClients(reloaded)
-	if err != nil {
-		t.Fatalf("GetClients: %v", err)
-	}
-	if len(cs) != 1 || cs[0].ExpiryTime <= 0 {
-		t.Errorf("inbound settings expiry not converted: %#v", cs)
-	}
-}
-
-// TestAddClientTraffic_ExpiryWriteOnlyForConvertedClients locks in that the
+// TestAddClientTraffic_RetiredExpiryRemainsUntouched locks in that the
 // delayed-start persistence pass touches only clients adjustTraffics actually
 // converted this poll: the delayed client's negative expiry becomes an absolute
 // deadline while an already-absolute expiry passes through byte-identical.
 // Before the fix every polled row got its own no-op expiry UPDATE.
-func TestAddClientTraffic_ExpiryWriteOnlyForConvertedClients(t *testing.T) {
+func TestAddClientTraffic_RetiredExpiryRemainsUntouched(t *testing.T) {
 	dbDir := t.TempDir()
 	t.Setenv("XUI_DB_FOLDER", dbDir)
 	dbtest.InitDB(t, filepath.Join(dbDir, "x-ui.db"))
@@ -195,7 +135,6 @@ func TestAddClientTraffic_ExpiryWriteOnlyForConvertedClients(t *testing.T) {
 		t.Fatalf("create normal traffic row: %v", err)
 	}
 
-	before := time.Now().UnixMilli()
 	err := svc.addClientTraffic(db, []*xray.ClientTraffic{
 		{Email: delayedEmail, Up: 10, Down: 20},
 		{Email: normalEmail, Up: 30, Down: 40},
@@ -208,8 +147,8 @@ func TestAddClientTraffic_ExpiryWriteOnlyForConvertedClients(t *testing.T) {
 	if err := db.Model(xray.ClientTraffic{}).Where("email = ?", delayedEmail).First(&delayed).Error; err != nil {
 		t.Fatalf("reload delayed row: %v", err)
 	}
-	if delayed.ExpiryTime < before+sevenDays-5000 || delayed.ExpiryTime > before+sevenDays+5000 {
-		t.Errorf("delayed expiry = %d, want ~now+7d (%d)", delayed.ExpiryTime, before+sevenDays)
+	if delayed.ExpiryTime != -sevenDays {
+		t.Fatalf("retired first-use expiry changed: %d", delayed.ExpiryTime)
 	}
 
 	var normal xray.ClientTraffic

@@ -9,23 +9,19 @@ import {
   Modal,
   Select,
   Space,
-  Switch,
   Tooltip,
   message,
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
 
 import { RandomUtil, SizeFormatter } from '@/utils';
 import { formatInboundLabel } from '@/lib/inbounds/label';
-import { TLS_FLOW_CONTROL, TRAFFIC_RESETS } from '@/schemas/primitives';
-import { DateTimePicker, SelectAllClearButtons } from '@/components/form';
+import { TLS_FLOW_CONTROL } from '@/schemas/primitives';
+import { SelectAllClearButtons } from '@/components/form';
 import { FormField } from '@/components/form/rhf';
 import { useClients, type InboundOption } from '@/hooks/useClients';
 import { useFail2banStatusQuery, getLimitIpNotice } from '@/api/queries/useFail2banStatusQuery';
-import ClientRenewalFields from './ClientRenewalFields';
 import { ClientBulkAddFormSchema, type ClientBulkAddFormValues } from '@/schemas/client';
 
 const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
@@ -90,11 +86,8 @@ export default function ClientBulkAddModal({
   const emailMethod = useWatch({ control: methods.control, name: 'emailMethod' });
   const firstNum = useWatch({ control: methods.control, name: 'firstNum' });
   const flow = useWatch({ control: methods.control, name: 'flow' });
-  const expiryTime = useWatch({ control: methods.control, name: 'expiryTime' });
   const subId = useWatch({ control: methods.control, name: 'subId' });
   const limitIp = useWatch({ control: methods.control, name: 'limitIp' });
-  const trafficReset = useWatch({ control: methods.control, name: 'trafficReset' });
-  const [delayedStart, setDelayedStart] = useState(false);
   const [saving, setSaving] = useState(false);
   const fail2ban = useFail2banStatusQuery();
   const limitIpDisabled = !fail2ban.usable;
@@ -105,7 +98,6 @@ export default function ClientBulkAddModal({
     setWasOpen(open);
     if (open) {
       methods.reset(EMPTY);
-      setDelayedStart(false);
     }
   }
 
@@ -147,13 +139,6 @@ export default function ClientBulkAddModal({
         })),
     [inbounds],
   );
-
-  const expiryDate = useMemo<Dayjs | null>(
-    () => (expiryTime > 0 ? dayjs(expiryTime) : null),
-    [expiryTime],
-  );
-
-  const delayedExpireDays = expiryTime < 0 ? expiryTime / -86400000 : 0;
 
   function buildEmails(values: ClientBulkAddFormValues): string[] {
     const method = values.emailMethod;
@@ -398,60 +383,6 @@ export default function ClientBulkAddModal({
             >
               <InputNumber min={0} step={1} />
             </FormField>
-
-            <Form.Item label={t('pages.clients.delayedStart')}>
-              <Switch
-                checked={delayedStart}
-                onClick={() => {
-                  setDelayedStart(!delayedStart);
-                  methods.setValue('expiryTime', 0);
-                }}
-              />
-            </Form.Item>
-
-            {delayedStart ? (
-              <Form.Item label={t('pages.clients.expireDays')}>
-                <InputNumber
-                  value={delayedExpireDays}
-                  min={0}
-                  onChange={(v) => methods.setValue('expiryTime', -86400000 * (Number(v) || 0))}
-                />
-              </Form.Item>
-            ) : (
-              <Form.Item label={t('pages.inbounds.expireDate')}>
-                <DateTimePicker
-                  value={expiryDate}
-                  onChange={(next) => methods.setValue('expiryTime', next ? next.valueOf() : 0)}
-                />
-              </Form.Item>
-            )}
-
-            <ClientRenewalFields
-              active={open}
-              delayedStart={delayedStart}
-              expiryTime={expiryTime}
-              bulk
-              setExpiry={(expiry) => methods.setValue('expiryTime', expiry)}
-            />
-
-            <FormField name="trafficReset" label={t('pages.inbounds.periodicTrafficResetTitle')}>
-              <Select
-                options={TRAFFIC_RESETS.map((r) => ({
-                  value: r,
-                  label: t(`pages.inbounds.periodicTrafficReset.${r}`),
-                }))}
-              />
-            </FormField>
-
-            {trafficReset === 'monthly' && (
-              <FormField
-                name="trafficResetDay"
-                label={t('pages.inbounds.periodicTrafficResetDay')}
-                transform={{ output: (v) => Number(v) || 1 }}
-              >
-                <InputNumber min={1} max={31} />
-              </FormField>
-            )}
           </Form>
         </FormProvider>
       </Modal>

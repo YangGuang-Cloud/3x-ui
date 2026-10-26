@@ -1,7 +1,6 @@
 package sub
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,7 +80,7 @@ func TestClashQuotaHeaderCountsDroppedExternalLink(t *testing.T) {
 	if strings.Contains(w.Body.String(), "198.51.100.9") {
 		t.Fatalf("unrepresentable node leaked into the profile: %s", w.Body.String())
 	}
-	wantHeader := fmt.Sprintf("upload=111; download=222; total=3072; expire=%d", expiry/1000)
+	wantHeader := "upload=111; download=222; total=3072; expire=0"
 	if got := w.Header().Get("Subscription-Userinfo"); got != wantHeader {
 		t.Fatalf("Subscription-Userinfo = %q, want %q", got, wantHeader)
 	}

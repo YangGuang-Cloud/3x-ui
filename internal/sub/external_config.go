@@ -74,7 +74,7 @@ func (s *SubService) getClientExternalLinksBySubId(subId string) ([]externalLink
 			NamePrefix: r.NamePrefix,
 			Email:      rec.Email,
 			Enable:     rec.Enable,
-			Active:     rec.Enable && (rec.ExpiryTime <= 0 || rec.ExpiryTime > now),
+			Active:     rec.Enable,
 		})
 	}
 	return out, nil

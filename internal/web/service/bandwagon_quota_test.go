@@ -103,7 +103,7 @@ func TestBandwagonQuotaEnforcementRolloverAndHistory(t *testing.T) {
 	if err := svc.reconcileBandwagonQuotas(db, batch); err != nil || len(batch.localPlans) != 0 {
 		t.Fatal("rollover not idempotent", err)
 	}
-	// Manual and expired clients must never be revived by a retained block.
+	// Manual disable still wins; retired expiry no longer prevents cycle recovery.
 	for _, mode := range []string{"manual", "expired"} {
 		db.Create(&model.BandwagonQuotaBlock{ClientID: c.Id, CycleID: 1})
 		db.Model(&xray.ClientTraffic{}).Where("email = ?", c.Email).Update("enable", false)
@@ -116,8 +116,11 @@ func TestBandwagonQuotaEnforcementRolloverAndHistory(t *testing.T) {
 		if err := svc.reconcileBandwagonQuotas(db, batch); err != nil {
 			t.Fatal(err)
 		}
-		if trafficOf(t, c.Email).Enable || len(batch.localPlans) != 0 {
-			t.Fatal("revived", mode)
+		if mode == "manual" && (trafficOf(t, c.Email).Enable || len(batch.localPlans) != 0) {
+			t.Fatal("manual disable lost")
+		}
+		if mode == "expired" && (!trafficOf(t, c.Email).Enable || len(batch.localPlans) != 1) {
+			t.Fatal("retired expiry blocked cycle recovery")
 		}
 		db.Delete(&model.BandwagonQuotaBlock{}, "client_id = ?", c.Id)
 	}

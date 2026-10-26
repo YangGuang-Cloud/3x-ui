@@ -28,3 +28,11 @@ type BandwagonQuotaBlock struct {
 	ClientID int `gorm:"primaryKey;autoIncrement:false"`
 	CycleID  uint
 }
+
+// ClientOnlineTime retains account-level observed online seconds across billing cycles.
+type ClientOnlineTime struct {
+	VEID     string `gorm:"primaryKey;autoIncrement:false"`
+	ClientID int    `gorm:"primaryKey;autoIncrement:false"`
+	Bucket   int64  `gorm:"primaryKey;autoIncrement:false"`
+	Seconds  int64
+}

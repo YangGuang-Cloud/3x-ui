@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Alert,
   AutoComplete,
   Button,
   Col,
@@ -8,7 +9,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Row,
   Select,
   Space,
@@ -19,15 +19,8 @@ import {
   Typography,
   message,
 } from 'antd';
-import {
-  DeleteOutlined,
-  EyeOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  RetweetOutlined,
-} from '@ant-design/icons';
+import { DeleteOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
 import { Controller, FormProvider, useForm, useWatch, useFieldArray } from 'react-hook-form';
 
 import { HttpUtil, IntlUtil, RandomUtil, Wireguard } from '@/utils';
@@ -40,7 +33,7 @@ import { useClientHwids } from '@/hooks/useClientHwids';
 import { DateTimePicker, SelectAllClearButtons } from '@/components/form';
 import { FormField } from '@/components/form/rhf';
 import ClientHwidListModal from '@/components/clients/ClientHwidList';
-import { TLS_FLOW_CONTROL, TRAFFIC_RESETS } from '@/schemas/primitives';
+import { TLS_FLOW_CONTROL } from '@/schemas/primitives';
 import type {
   ClientRecord,
   InboundOption,
@@ -48,9 +41,9 @@ import type {
   ExternalLinkInput,
 } from '@/hooks/useClients';
 import { useFail2banStatusQuery, getLimitIpNotice } from '@/api/queries/useFail2banStatusQuery';
-import ClientRenewalFields from './ClientRenewalFields';
 import { ClientFormSchema, ClientCreateFormSchema, type ClientFormValues } from '@/schemas/client';
 import './ClientFormModal.css';
+import ClientBandwidthFields, { useClientBandwidthDraft } from './ClientBandwidthFields';
 
 const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
 const VMESS_SECURITY_OPTIONS = ['auto', 'aes-128-gcm', 'chacha20-poly1305'] as const;
@@ -83,6 +76,7 @@ interface ExternalLinkRow {
 }
 
 interface ApiMsg<T = unknown> {
+  savedEmail?: string;
   success?: boolean;
   msg?: string;
   obj?: T;
@@ -252,7 +246,6 @@ export default function ClientFormModal({
   tgBotEnable = false,
   groups = [],
   save,
-  resetTraffic,
   onOpenChange,
 }: ClientFormModalProps) {
   const { t } = useTranslation();
@@ -261,8 +254,6 @@ export default function ClientFormModal({
 
   const methods = useForm<Values>({ defaultValues: EMPTY });
   const inboundIds = useWatch({ control: methods.control, name: 'inboundIds' });
-  const delayedStart = useWatch({ control: methods.control, name: 'delayedStart' });
-  const delayedDays = useWatch({ control: methods.control, name: 'delayedDays' });
   const expiryDate = useWatch({ control: methods.control, name: 'expiryDate' });
   const enable = useWatch({ control: methods.control, name: 'enable' });
   const flow = useWatch({ control: methods.control, name: 'flow' });
@@ -270,7 +261,6 @@ export default function ClientFormModal({
   const secret = useWatch({ control: methods.control, name: 'secret' });
   const email = useWatch({ control: methods.control, name: 'email' });
   const uuid = useWatch({ control: methods.control, name: 'uuid' });
-  const trafficReset = useWatch({ control: methods.control, name: 'trafficReset' });
   const password = useWatch({ control: methods.control, name: 'password' });
   const subId = useWatch({ control: methods.control, name: 'subId' });
   const limitHwid = useWatch({ control: methods.control, name: 'limitHwid' });
@@ -283,8 +273,11 @@ export default function ClientFormModal({
     remove: removeExternalLink,
   } = useFieldArray({ control: methods.control, name: 'externalLinks' });
 
+  const bandwidth = useClientBandwidthDraft(open && isEdit ? client?.email || null : null);
+  const [saveError, setSaveError] = useState('');
+  const [savedEmail, setSavedEmail] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('basic');
   const [submitting, setSubmitting] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [clientIps, setClientIps] = useState<ClientIpInfo[]>([]);
   const [ipsLoading, setIpsLoading] = useState(false);
   const [ipsClearing, setIpsClearing] = useState(false);
@@ -342,11 +335,13 @@ export default function ClientFormModal({
 
   useEffect(() => {
     if (!open) return;
+    setActiveTab('basic');
+    setSaveError('');
+    setSavedEmail(null);
     setIpsModalOpen(false);
     setHwidsModalOpen(false);
 
     if (isEdit && client) {
-      const et = Number(client.expiryTime) || 0;
       const seedIds = Array.isArray(attachedIds) ? attachedIds : [];
       const attachedWireguardId = seedIds.find((id) => wireguardIds.has(id));
       const attachedAmneziawgId = seedIds.find((id) => amneziawgIds.has(id));
@@ -368,12 +363,12 @@ export default function ClientFormModal({
             : client.security,
         reverseTag: client.reverse?.tag || '',
         totalGB: bytesToGB(client.totalGB || 0),
-        reset: Number(client.reset) || 0,
-        resetDay: Number(client.resetDay) || 0,
-        resetWeekday: Number(client.resetWeekday) || 0,
-        resetMax: Number(client.resetMax) || 0,
-        trafficReset: (client.trafficReset as ClientFormValues['trafficReset']) || 'never',
-        trafficResetDay: Number(client.trafficResetDay) || 1,
+        reset: 0,
+        resetDay: 0,
+        resetWeekday: 0,
+        resetMax: 0,
+        trafficReset: 'never',
+        trafficResetDay: 1,
         limitIp: client.limitIp || 0,
         limitHwid: client.limitHwid || 0,
         tgId: Number(client.tgId) || 0,
@@ -392,15 +387,6 @@ export default function ClientFormModal({
         secret: client.secret || '',
         adTag: client.adTag || '',
       };
-      if (et < 0) {
-        seed.delayedStart = true;
-        seed.delayedDays = Math.round(et / -86400000);
-        seed.expiryDate = 0;
-      } else {
-        seed.delayedStart = false;
-        seed.delayedDays = 0;
-        seed.expiryDate = et > 0 ? et : 0;
-      }
       methods.reset(seed);
       void loadIps();
       void loadHwids();
@@ -567,11 +553,6 @@ export default function ClientFormModal({
     [inbounds, inboundIds],
   );
 
-  const expiryDayjs = useMemo<Dayjs | null>(
-    () => (expiryDate > 0 ? dayjs(expiryDate) : null),
-    [expiryDate],
-  );
-
   const linkRows = externalLinkFields
     .map((field, index) => ({ field, index }))
     .filter((row) => row.field.kind === 'link');
@@ -623,22 +604,9 @@ export default function ClientFormModal({
     onOpenChange(false);
   }
 
-  async function onResetTraffic() {
-    if (!isEdit || !client?.email || !resetTraffic) return;
-    setResetting(true);
-    try {
-      const msg = await resetTraffic(client);
-      if (msg?.success) {
-        messageApi.success(t('pages.clients.toasts.trafficReset'));
-      } else {
-        messageApi.error(msg?.msg || t('somethingWentWrong'));
-      }
-    } finally {
-      setResetting(false);
-    }
-  }
-
   async function onSubmit() {
+    if (submitting || !bandwidth.canSave) return;
+    setSaveError('');
     const values = methods.getValues();
     const schema = isEdit ? ClientFormSchema : ClientCreateFormSchema;
     const validated = schema.safeParse({
@@ -672,9 +640,7 @@ export default function ClientFormModal({
       messageApi.error(t(issue?.message ?? 'somethingWentWrong'));
       return;
     }
-    const expiryTime = values.delayedStart
-      ? -86400000 * (Number(values.delayedDays) || 0)
-      : values.expiryDate || 0;
+    const expiryTime = 0;
     const totalBytes = resolveTotalBytes(client ? (client.totalGB ?? 0) : null, values.totalGB);
     const clientPayload: Record<string, unknown> = {
       email: values.email.trim(),
@@ -687,12 +653,12 @@ export default function ClientFormModal({
       security: showSecurity ? values.security || 'auto' : 'auto',
       totalGB: totalBytes,
       expiryTime,
-      reset: Number(values.reset) || 0,
-      resetDay: Number(values.resetDay) || 0,
-      resetWeekday: Number(values.resetWeekday) || 0,
-      resetMax: Number(values.resetMax) || 0,
-      trafficReset: values.trafficReset || 'never',
-      trafficResetDay: Number(values.trafficResetDay) || 1,
+      reset: 0,
+      resetDay: 0,
+      resetWeekday: 0,
+      resetMax: 0,
+      trafficReset: 'never',
+      trafficResetDay: 1,
       limitIp: Number(values.limitIp) || 0,
       limitHwid: Number(values.limitHwid) || 0,
       tgId: Number(values.tgId) || 0,
@@ -774,7 +740,7 @@ export default function ClientFormModal({
         const toDetach = [...original].filter((id) => !next.has(id));
         msg = await save(clientPayload, {
           isEdit: true,
-          email: client.email,
+          email: savedEmail || client.email,
           attach: toAttach,
           detach: toDetach,
           externalLinks,
@@ -785,7 +751,40 @@ export default function ClientFormModal({
           { isEdit: false, email: clientPayload.email as string, externalLinks },
         );
       }
-      if (msg?.success) close();
+      if (msg?.savedEmail) setSavedEmail(msg.savedEmail);
+      if (!msg?.success) {
+        setSaveError(msg?.msg || t('somethingWentWrong'));
+        return;
+      }
+      if (isEdit && client) {
+        const emailKey = clientPayload.email as string;
+        setSavedEmail(emailKey);
+        if (bandwidth.changed && bandwidth.value) {
+          try {
+            const result = await HttpUtil.post(
+              `/panel/api/clients/${encodeURIComponent(emailKey)}/bandwidth`,
+              {
+                uploadMbps: bandwidth.value.uploadMbps,
+                downloadMbps: bandwidth.value.downloadMbps,
+              },
+              { silent: true, headers: { 'Content-Type': 'application/json' } },
+            );
+            if (!result?.success) {
+              setSaveError(
+                `${t('pages.clients.bandwidthSaveFailed')}${result?.msg ? ` ${result.msg}` : ''}`,
+              );
+              return;
+            }
+          } catch {
+            setSaveError(t('pages.clients.bandwidthSaveFailed'));
+            return;
+          }
+        }
+      }
+      if (isEdit) messageApi.success(t('success'));
+      close();
+    } catch {
+      setSaveError(t('somethingWentWrong'));
     } finally {
       setSubmitting(false);
     }
@@ -806,30 +805,21 @@ export default function ClientFormModal({
           body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', overflowX: 'hidden' },
         }}
         onCancel={close}
+        closable={!submitting}
+        mask={{ closable: !submitting }}
+        keyboard={!submitting}
         footer={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {isEdit && resetTraffic && (
-              <Popconfirm
-                title={t('pages.inbounds.resetTraffic')}
-                description={t('pages.inbounds.resetTrafficContent')}
-                okText={t('reset')}
-                cancelText={t('cancel')}
-                zIndex={CLIENT_IP_LOG_MODAL_Z_INDEX}
-                onConfirm={onResetTraffic}
-              >
-                <Button
-                  color="danger"
-                  variant="filled"
-                  icon={<RetweetOutlined />}
-                  loading={resetting}
-                >
-                  {t('pages.inbounds.resetTraffic')}
-                </Button>
-              </Popconfirm>
-            )}
             <div style={{ marginInlineStart: 'auto', display: 'flex', gap: 8 }}>
-              <Button onClick={close}>{t('cancel')}</Button>
-              <Button type="primary" loading={submitting} onClick={onSubmit}>
+              <Button disabled={submitting} onClick={close}>
+                {t('cancel')}
+              </Button>
+              <Button
+                type="primary"
+                loading={submitting}
+                disabled={!bandwidth.canSave}
+                onClick={onSubmit}
+              >
                 {isEdit ? t('save') : t('create')}
               </Button>
             </div>
@@ -837,9 +827,11 @@ export default function ClientFormModal({
         }
       >
         <FormProvider {...methods}>
-          <Form layout="vertical">
+          {saveError && <Alert type="error" title={saveError} style={{ marginBottom: 16 }} />}
+          <Form layout="vertical" disabled={submitting}>
             <Tabs
-              defaultActiveKey="basic"
+              activeKey={activeTab}
+              onChange={setActiveTab}
               items={[
                 {
                   key: 'basic',
@@ -878,6 +870,11 @@ export default function ClientFormModal({
                             <InputNumber min={0} step={1} style={{ width: '100%' }} />
                           </FormField>
                         </Col>
+                        {isEdit && client?.email && open && (
+                          <Col span={24} style={{ marginBottom: 24 }}>
+                            <ClientBandwidthFields draft={bandwidth} disabled={submitting} />
+                          </Col>
+                        )}
                         <Col xs={24} md={12}>
                           <Form.Item
                             label={t('pages.clients.limitIp')}
@@ -941,76 +938,6 @@ export default function ClientFormModal({
                           </Form.Item>
                         </Col>
                       </Row>
-
-                      <Row gutter={16}>
-                        <Col xs={24} md={12}>
-                          {delayedStart ? (
-                            <FormField
-                              name="delayedDays"
-                              label={t('pages.clients.expireDays')}
-                              transform={{ output: (v) => Number(v) || 0 }}
-                            >
-                              <InputNumber min={0} style={{ width: '100%' }} />
-                            </FormField>
-                          ) : (
-                            <Form.Item label={t('pages.clients.expiryTime')}>
-                              <DateTimePicker
-                                value={expiryDayjs}
-                                onChange={(d) =>
-                                  methods.setValue('expiryDate', d ? d.valueOf() : 0)
-                                }
-                              />
-                            </Form.Item>
-                          )}
-                        </Col>
-                        <Col xs={12} md={6}>
-                          <Form.Item label={t('pages.clients.delayedStart')}>
-                            <Switch
-                              checked={delayedStart}
-                              onChange={(v) => {
-                                methods.setValue('delayedStart', v);
-                                if (v) methods.setValue('expiryDate', 0);
-                                else methods.setValue('delayedDays', 0);
-                              }}
-                            />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-
-                      <Row gutter={16}>
-                        <Col xs={24} md={12}>
-                          <FormField
-                            name="trafficReset"
-                            label={t('pages.inbounds.periodicTrafficResetTitle')}
-                          >
-                            <Select
-                              options={TRAFFIC_RESETS.map((r) => ({
-                                value: r,
-                                label: t(`pages.inbounds.periodicTrafficReset.${r}`),
-                              }))}
-                            />
-                          </FormField>
-                        </Col>
-                        {trafficReset === 'monthly' && (
-                          <Col xs={24} md={12}>
-                            <FormField
-                              name="trafficResetDay"
-                              label={t('pages.inbounds.periodicTrafficResetDay')}
-                              transform={{ output: (v) => Number(v) || 1 }}
-                            >
-                              <InputNumber min={1} max={31} style={{ width: '100%' }} />
-                            </FormField>
-                          </Col>
-                        )}
-                      </Row>
-
-                      <ClientRenewalFields
-                        active={open}
-                        delayedStart={delayedStart}
-                        expiryTime={delayedStart ? -86400000 * (delayedDays || 0) : expiryDate || 0}
-                        resetCount={client?.traffic?.resetCount || 0}
-                        setExpiry={(expiry) => methods.setValue('expiryDate', expiry)}
-                      />
 
                       <Row gutter={16}>
                         <Col xs={24} md={12}>

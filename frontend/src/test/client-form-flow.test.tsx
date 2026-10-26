@@ -1,6 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, waitFor, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+import { HttpUtil, Msg } from '@/utils';
+beforeEach(() =>
+  vi
+    .spyOn(HttpUtil, 'get')
+    .mockResolvedValue(new Msg(true, '', { uploadMbps: 0, downloadMbps: 0, supported: true })),
+);
+afterEach(() => vi.restoreAllMocks());
 
 import { ThemeProvider } from '@/hooks/useTheme';
 import ClientFormModal from '@/pages/clients/ClientFormModal';
@@ -50,7 +58,10 @@ describe('ClientFormModal — Vision flow preservation', () => {
         </QueryClientProvider>
       </ThemeProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: /save/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /save/i }).hasAttribute('disabled')).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(savedFlow(save)).toBe('xtls-rprx-vision');
   });
@@ -79,7 +90,10 @@ describe('ClientFormModal — Vision flow preservation', () => {
     rerender(tree([]));
     rerender(tree([REALITY_INBOUND]));
 
-    fireEvent.click(await screen.findByRole('button', { name: /save/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /save/i }).hasAttribute('disabled')).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(savedFlow(save)).toBe('xtls-rprx-vision');
   });

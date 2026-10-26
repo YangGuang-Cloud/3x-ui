@@ -253,14 +253,12 @@ func (s *NodeService) nodeClientStatuses() ([]nodeClientStatus, error) {
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	now := time.Now().UnixMilli()
 	out := make([]nodeClientStatus, 0, len(rows))
 	for _, r := range rows {
 		st := nodeClientStatus{InboundID: r.InboundID, NodeID: r.NodeID, ClientID: r.ClientID}
-		expired := r.ExpiryTime > 0 && r.ExpiryTime <= now
 		exhausted := r.Total > 0 && r.Up+r.Down >= r.Total
 		switch {
-		case expired || exhausted:
+		case exhausted:
 			st.Depleted = true
 		case !r.Enable:
 			st.Disabled = true

@@ -4,7 +4,6 @@ import {
   Button,
   Checkbox,
   Col,
-  DatePicker,
   Drawer,
   Form,
   InputNumber,
@@ -14,8 +13,6 @@ import {
   Space,
   Typography,
 } from 'antd';
-import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
 
 import type { InboundOption } from '@/hooks/useClients';
 import type { NodeRecord } from '@/schemas/node';
@@ -76,11 +73,6 @@ export default function FilterDrawer({
     ],
     [nodes, t],
   );
-
-  const dateRange: [Dayjs | null, Dayjs | null] = [
-    filters.expiryFrom ? dayjs(filters.expiryFrom) : null,
-    filters.expiryTo ? dayjs(filters.expiryTo) : null,
-  ];
 
   return (
     <Drawer
@@ -169,19 +161,6 @@ export default function FilterDrawer({
           />
         </Form.Item>
 
-        <Form.Item label={t('pages.clients.expiryTime')}>
-          <DatePicker.RangePicker
-            value={dateRange}
-            onChange={(range) => {
-              const from = range?.[0]?.startOf('day').valueOf();
-              const to = range?.[1]?.endOf('day').valueOf();
-              onChange({ ...filters, expiryFrom: from || undefined, expiryTo: to || undefined });
-            }}
-            style={{ width: '100%' }}
-            allowEmpty={[true, true]}
-          />
-        </Form.Item>
-
         <Form.Item label={`${t('pages.clients.traffic')} (GB)`}>
           <Row gutter={8}>
             <Col span={12}>
@@ -205,20 +184,6 @@ export default function FilterDrawer({
               />
             </Col>
           </Row>
-        </Form.Item>
-
-        <Form.Item label={t('pages.clients.renew')}>
-          <Radio.Group
-            value={filters.autoRenew}
-            onChange={(e) => patch('autoRenew', e.target.value)}
-            optionType="button"
-            buttonStyle="solid"
-            options={[
-              { value: '', label: t('all') },
-              { value: 'on', label: t('enabled') },
-              { value: 'off', label: t('disabled') },
-            ]}
-          />
         </Form.Item>
 
         <Form.Item label={t('pages.clients.telegramId')}>

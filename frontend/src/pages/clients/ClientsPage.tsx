@@ -1,5 +1,6 @@
 import BandwagonCard, {
   useBandwagon,
+  ClientPresenceMetric,
   ClientProviderUsage,
 } from '@/components/bandwagon/BandwagonCard';
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -47,7 +48,6 @@ import {
   PlusOutlined,
   QrcodeOutlined,
   RestOutlined,
-  RetweetOutlined,
   SearchOutlined,
   SortAscendingOutlined,
   StopOutlined,
@@ -97,7 +97,6 @@ const BulkDetachInboundsModal = lazy(() => import('./BulkDetachInboundsModal'));
 const TextModal = lazy(() => import('@/components/feedback/TextModal'));
 const PromptModal = lazy(() => import('@/components/feedback/PromptModal'));
 import { ClientInboundChips, ClientRowActions } from './RowCells';
-import ClientBandwidthModal from './ClientBandwidthModal';
 import { emptyFilters, activeFilterCount } from './filters';
 import type { ClientFilters } from './filters';
 import './ClientsPage.css';
@@ -307,12 +306,6 @@ const SORT_OPTIONS: {
     order: 'descend',
     labelKey: 'pages.clients.sortHighestRemaining',
   },
-  {
-    value: 'expiryTime:ascend',
-    column: 'expiryTime',
-    order: 'ascend',
-    labelKey: 'pages.clients.sortExpiringSoonest',
-  },
 ];
 
 const DEFAULT_SORT = SORT_OPTIONS[0];
@@ -347,7 +340,6 @@ export default function ClientsPage() {
     fetchError,
     subSettings,
     tgBotEnable,
-    expireDiff,
     trafficDiff,
     pageSize,
     settingsReady,
@@ -365,8 +357,6 @@ export default function ClientsPage() {
     bulkAttach,
     detach,
     bulkDetach,
-    resetTraffic,
-    resetAllTraffics,
     delDepleted,
     delOrphans,
     exportClients,
@@ -401,7 +391,6 @@ export default function ClientsPage() {
   const [togglingEmail, setTogglingEmail] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'add' | 'edit'>('add');
-  const [bandwidthEmail, setBandwidthEmail] = useState<string | null>(null);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [editingAttachedIds, setEditingAttachedIds] = useState<number[]>([]);
   const [editingExternalLinks, setEditingExternalLinks] = useState<ExternalLink[]>([]);
@@ -526,11 +515,8 @@ export default function ClientsPage() {
       filter: filters.buckets.join(','),
       protocol: filters.protocols.join(','),
       inbound: effectiveInboundCsv,
-      expiryFrom: filters.expiryFrom,
-      expiryTo: filters.expiryTo,
       usageFrom: gbToBytes(filters.usageFromGB),
       usageTo: gbToBytes(filters.usageToGB),
-      autoRenew: filters.autoRenew || undefined,
       hasTgId: filters.hasTgId || undefined,
       hasComment: filters.hasComment || undefined,
       group: filters.groups.join(',') || undefined,
@@ -596,18 +582,14 @@ export default function ClientsPage() {
       const traffic = row.traffic || {};
       const used = row.quotaUsed ?? (traffic.up || 0) + (traffic.down || 0);
       const total = row.totalGB || 0;
-      const now = Date.now();
-      const expired = (row.expiryTime ?? 0) > 0 && (row.expiryTime ?? 0) <= now;
       const exhausted = total > 0 && used >= total;
-      if (expired || exhausted) return 'depleted';
+      if (exhausted) return 'depleted';
       if (!row.enable) return 'deactive';
-      const nearExpiry =
-        (row.expiryTime ?? 0) > 0 && (row.expiryTime ?? 0) - now < (expireDiff || 0);
       const nearLimit = total > 0 && total - used < (trafficDiff || 0);
-      if (nearExpiry || nearLimit) return 'expiring';
+      if (nearLimit) return 'expiring';
       return 'active';
     },
-    [expireDiff, trafficDiff],
+    [trafficDiff],
   );
 
   function bucketBadgeStatus(bucket: Bucket | null): 'success' | 'warning' | 'error' | 'default' {
@@ -648,33 +630,6 @@ export default function ClientsPage() {
     const ratio = used / total;
     if (ratio >= 1) return 'red';
     if (ratio >= 0.85) return 'orange';
-    return 'green';
-  }
-
-  function expiryLabel(row: ClientRecord) {
-    if (!row.expiryTime) return '∞';
-    if (row.expiryTime < 0) {
-      const days = Math.round(row.expiryTime / -86400000);
-      return `${t('pages.clients.delayedStart')}: ${days}d`;
-    }
-    return IntlUtil.formatDate(row.expiryTime, datepicker);
-  }
-
-  function expiryRelative(row: ClientRecord) {
-    if (!row.expiryTime) return '';
-    if (row.expiryTime < 0) {
-      const days = Math.round(row.expiryTime / -86400000);
-      return `${days}d`;
-    }
-    return IntlUtil.formatRelativeTime(row.expiryTime);
-  }
-
-  function expiryColor(row: ClientRecord): string {
-    if (!row.expiryTime) return 'purple';
-    if (row.expiryTime < 0) return 'blue';
-    const now = Date.now();
-    if (row.expiryTime <= now) return 'red';
-    if (row.expiryTime - now < 86400 * 1000 * 3) return 'orange';
     return 'green';
   }
 
@@ -735,27 +690,6 @@ export default function ClientsPage() {
       });
     },
     [modal, t, remove, messageApi],
-  );
-
-  const onResetTraffic = useCallback(
-    (email: string) => {
-      const row = rowsByEmail.current.get(email);
-      if (!row?.email) {
-        messageApi.warning(t('pages.clients.resetNotPossible'));
-        return;
-      }
-      modal.confirm({
-        title: `${t('pages.inbounds.resetTraffic')} — ${row.email}`,
-        content: t('pages.inbounds.resetTrafficContent'),
-        okText: t('reset'),
-        cancelText: t('cancel'),
-        onOk: async () => {
-          const msg = await resetTraffic(row);
-          if (msg?.success) messageApi.success(t('pages.clients.toasts.trafficReset'));
-        },
-      });
-    },
-    [modal, t, resetTraffic, messageApi],
   );
 
   const onShowInfo = useCallback(
@@ -831,20 +765,6 @@ export default function ClientsPage() {
     },
     [promptHandler],
   );
-
-  function onResetAllTraffics() {
-    modal.confirm({
-      title: t('pages.clients.resetAllTrafficsTitle'),
-      content: t('pages.clients.resetAllTrafficsContent'),
-      okText: t('reset'),
-      okType: 'danger',
-      cancelText: t('cancel'),
-      onOk: async () => {
-        const msg = await resetAllTraffics();
-        if (msg?.success) messageApi.success(t('pages.clients.toasts.allTrafficsReset'));
-      },
-    });
-  }
 
   function onDelDepleted() {
     modal.confirm({
@@ -1029,25 +949,28 @@ export default function ClientsPage() {
         }
         return createMsg;
       }
-      const updateMsg = await update(meta.email, payload);
+      const updateMsg = await update(meta.email, payload, true);
       if (!updateMsg?.success) return updateMsg;
       const rawEmail = (payload as { email?: unknown }).email;
       const emailKey =
         typeof rawEmail === 'string' && rawEmail.trim() ? rawEmail.trim() : meta.email;
       if (Array.isArray(meta.attach) && meta.attach.length > 0) {
         const r = await attach(emailKey, meta.attach);
-        if (!r?.success) return r;
+        if (!r?.success)
+          return { success: false, msg: r?.msg || t('somethingWentWrong'), savedEmail: emailKey };
       }
       if (Array.isArray(meta.detach) && meta.detach.length > 0) {
         const r = await detach(emailKey, meta.detach);
-        if (!r?.success) return r;
+        if (!r?.success)
+          return { success: false, msg: r?.msg || t('somethingWentWrong'), savedEmail: emailKey };
       }
       // Always replace the client's external links (an empty set clears them).
       const r = await setExternalLinks(emailKey, meta.externalLinks);
-      if (!r?.success) return r;
+      if (!r?.success)
+        return { success: false, msg: r?.msg || t('somethingWentWrong'), savedEmail: emailKey };
       return updateMsg;
     },
-    [create, update, attach, detach, setExternalLinks],
+    [create, update, attach, detach, setExternalLinks, t],
   );
 
   const pageClass = useMemo(() => {
@@ -1073,10 +996,8 @@ export default function ClientsPage() {
             email={record.email}
             onShowQr={onShowQr}
             onShowInfo={onShowInfo}
-            onResetTraffic={onResetTraffic}
             onEdit={onEdit}
             onDelete={onDelete}
-            onBandwidth={setBandwidthEmail}
           />
         ),
       },
@@ -1196,6 +1117,12 @@ export default function ClientsPage() {
         ),
       },
       {
+        title: t('pages.clients.remaining'),
+        key: 'remaining',
+        width: 130,
+        render: (_v, record) => <Tag color={remainingColor(record)}>{remainingLabel(record)}</Tag>,
+      },
+      {
         title: t('pages.clients.speed'),
         key: 'speed',
         width: SPEED_COLUMN_WIDTH,
@@ -1226,21 +1153,23 @@ export default function ClientsPage() {
         ),
       },
       {
-        title: t('pages.clients.remaining'),
-        key: 'remaining',
-        width: 130,
-        render: (_v, record) => <Tag color={remainingColor(record)}>{remainingLabel(record)}</Tag>,
+        title: '在线时长',
+        key: 'onlineDuration',
+        width: 180,
+        render: (_v, record) => (
+          <ClientPresenceMetric
+            metric="duration"
+            status={providerStatus}
+            clientId={record.id ?? 0}
+          />
+        ),
       },
       {
-        title: t('pages.clients.duration'),
-        key: 'expiryTime',
-        width: 130,
+        title: '在线 IP 数',
+        key: 'onlineIPs',
+        width: 120,
         render: (_v, record) => (
-          <Tooltip title={expiryLabel(record)}>
-            <Tag color={expiryColor(record)}>
-              {record.expiryTime ? expiryRelative(record) : '∞'}
-            </Tag>
-          </Tooltip>
+          <ClientPresenceMetric metric="ips" status={providerStatus} clientId={record.id ?? 0} />
         ),
       },
     ],
@@ -1515,12 +1444,6 @@ export default function ClientsPage() {
                                         label: t('pages.clients.importClients'),
                                         onClick: onImportClients,
                                       },
-                                      {
-                                        key: 'resetAll',
-                                        icon: <RetweetOutlined />,
-                                        label: t('pages.clients.resetAllTraffics'),
-                                        onClick: onResetAllTraffics,
-                                      },
                                       { type: 'divider' as const },
                                       {
                                         key: 'delDepleted',
@@ -1671,22 +1594,6 @@ export default function ClientsPage() {
                               {t('pages.clients.group')}: {g}
                             </Tag>
                           ))}
-                          {(filters.expiryFrom || filters.expiryTo) && (
-                            <Tag
-                              closable
-                              color="purple"
-                              onClose={() => clearOneFilter('expiryFrom')}
-                            >
-                              {t('pages.clients.expiryTime')}:{' '}
-                              {filters.expiryFrom
-                                ? IntlUtil.formatDate(filters.expiryFrom, datepicker)
-                                : '…'}
-                              {' → '}
-                              {filters.expiryTo
-                                ? IntlUtil.formatDate(filters.expiryTo, datepicker)
-                                : '…'}
-                            </Tag>
-                          )}
                           {(filters.usageFromGB || filters.usageToGB) && (
                             <Tag
                               closable
@@ -1695,12 +1602,6 @@ export default function ClientsPage() {
                             >
                               {t('pages.clients.traffic')}: {filters.usageFromGB ?? 0}
                               {filters.usageToGB ? `–${filters.usageToGB}` : '+'} GB
-                            </Tag>
-                          )}
-                          {filters.autoRenew && (
-                            <Tag closable color="gold" onClose={() => clearOneFilter('autoRenew')}>
-                              {t('pages.clients.renew')}:{' '}
-                              {filters.autoRenew === 'on' ? t('enabled') : t('disabled')}
                             </Tag>
                           )}
                           {filters.hasTgId && (
@@ -1843,21 +1744,6 @@ export default function ClientsPage() {
                                               onClick: () => onShowQr(row.email),
                                             },
                                             {
-                                              key: 'reset',
-                                              label: (
-                                                <>
-                                                  <RetweetOutlined />{' '}
-                                                  {t('pages.inbounds.resetTraffic')}
-                                                </>
-                                              ),
-                                              onClick: () => onResetTraffic(row.email),
-                                            },
-                                            {
-                                              key: 'bandwidth',
-                                              label: t('pages.clients.bandwidthTitle'),
-                                              onClick: () => setBandwidthEmail(row.email),
-                                            },
-                                            {
                                               key: 'edit',
                                               label: (
                                                 <>
@@ -1908,6 +1794,10 @@ export default function ClientsPage() {
                                       />
                                     </div>
                                     <div>
+                                      {t('pages.clients.remaining')}：
+                                      <Tag color={remainingColor(row)}>{remainingLabel(row)}</Tag>
+                                    </div>
+                                    <div>
                                       {t('pages.clients.speed')}：
                                       {clientSpeed[row.email] ? (
                                         <ClientSpeedTag speed={clientSpeed[row.email]} />
@@ -1922,6 +1812,22 @@ export default function ClientsPage() {
                                         status={providerStatus}
                                         clientId={row.id ?? 0}
                                         speed={clientSpeed[row.email]}
+                                      />
+                                    </div>
+                                    <div>
+                                      在线时长：
+                                      <ClientPresenceMetric
+                                        metric="duration"
+                                        status={providerStatus}
+                                        clientId={row.id ?? 0}
+                                      />
+                                    </div>
+                                    <div>
+                                      在线 IP 数：
+                                      <ClientPresenceMetric
+                                        metric="ips"
+                                        status={providerStatus}
+                                        clientId={row.id ?? 0}
                                       />
                                     </div>
                                   </Space>
@@ -1939,13 +1845,6 @@ export default function ClientsPage() {
           </Layout.Content>
         </Layout>
 
-        {bandwidthEmail !== null && (
-          <ClientBandwidthModal
-            key={bandwidthEmail}
-            email={bandwidthEmail}
-            onClose={() => setBandwidthEmail(null)}
-          />
-        )}
         <LazyMount when={formOpen}>
           <ClientFormModal
             open={formOpen}
@@ -1958,7 +1857,6 @@ export default function ClientsPage() {
             tgBotEnable={tgBotEnable}
             groups={allGroups}
             save={onSave}
-            resetTraffic={resetTraffic}
             onOpenChange={setFormOpen}
           />
         </LazyMount>

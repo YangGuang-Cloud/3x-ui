@@ -57,6 +57,9 @@ func NewCheckClientIpJob() *CheckClientIpJob {
 func (j *CheckClientIpJob) Run() {
 	j.pruneStaleIpRows()
 	observed, apiMode := j.collectFromOnlineAPI()
+	if err := service.RecordClientPresence(observed, apiMode); err != nil {
+		logger.Warning("[Presence] record online time failed:", err)
+	}
 	if !apiMode {
 		// xray is down or predates the online-stats API. There is no access-log
 		// fallback anymore, so there is nothing to do this run.

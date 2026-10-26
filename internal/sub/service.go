@@ -668,12 +668,6 @@ func (s *SubService) AggregateTrafficByEmails(emails []string) (xray.ClientTraff
 }
 
 func subscriptionExpiryFromClient(nowMs, expiryTime int64) int64 {
-	if expiryTime > 0 {
-		return expiryTime
-	}
-	if expiryTime < 0 {
-		return nowMs + (-expiryTime)
-	}
 	return 0
 }
 

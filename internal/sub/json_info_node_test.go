@@ -122,12 +122,10 @@ func TestSubJson_InfoNode_Expired(t *testing.T) {
 		t.Fatalf("GetJson: %v", err)
 	}
 
-	if !strings.Contains(out, "Expired") || !strings.Contains(out, "exp@test.com") {
-		t.Fatalf("expected expired remark in JSON remarks, got:\n%s", out)
+	if strings.Contains(out, "Expired") || !strings.Contains(out, "Germany-VLESS") {
+		t.Fatalf("retired expiry affected subscription: %s", out)
 	}
-	if strings.Contains(out, "Germany-VLESS") {
-		t.Fatalf("expired subscription must NOT contain working inbound in JSON, got:\n%s", out)
-	}
+
 }
 
 func TestSubJson_InfoNode_Depleted(t *testing.T) {

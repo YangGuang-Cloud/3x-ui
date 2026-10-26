@@ -65,7 +65,7 @@ func TestClientWeeklyRenewCRUD(t *testing.T) {
 		}
 		assertSchedule(weekday)
 	}
-	if deleted, _, err := svc.DelDepleted(inboundSvc); err != nil || deleted != 1 {
-		t.Fatalf("non-renewing expired client was not purged: deleted/error = %d/%v", deleted, err)
+	if deleted, _, err := svc.DelDepleted(inboundSvc); err != nil || deleted != 0 {
+		t.Fatalf("legacy expiry must not purge client: deleted/error = %d/%v", deleted, err)
 	}
 }
