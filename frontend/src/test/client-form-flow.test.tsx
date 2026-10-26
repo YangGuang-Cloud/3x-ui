@@ -3,11 +3,12 @@ import { render, fireEvent, waitFor, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { HttpUtil, Msg } from '@/utils';
-beforeEach(() =>
-  vi
-    .spyOn(HttpUtil, 'get')
-    .mockResolvedValue(new Msg(true, '', { uploadMbps: 0, downloadMbps: 0, supported: true })),
-);
+beforeEach(() => {
+  vi.spyOn(HttpUtil, 'get').mockResolvedValue(
+    new Msg(true, '', { uploadMbps: 0, downloadMbps: 0, supported: true }),
+  );
+  vi.spyOn(HttpUtil, 'post').mockResolvedValue(new Msg(true, '', []));
+});
 afterEach(() => vi.restoreAllMocks());
 
 import { ThemeProvider } from '@/hooks/useTheme';
@@ -43,6 +44,7 @@ describe('ClientFormModal — Vision flow preservation', () => {
   it('keeps xtls-rprx-vision with a stable Reality inbound', async () => {
     const qc = makeQC();
     const save = vi.fn().mockResolvedValue({ success: true });
+    const close = vi.fn();
     render(
       <ThemeProvider>
         <QueryClientProvider client={qc}>
@@ -53,7 +55,7 @@ describe('ClientFormModal — Vision flow preservation', () => {
             inbounds={[REALITY_INBOUND]}
             attachedIds={[4]}
             save={save}
-            onOpenChange={() => {}}
+            onOpenChange={close}
           />
         </QueryClientProvider>
       </ThemeProvider>,
@@ -62,13 +64,14 @@ describe('ClientFormModal — Vision flow preservation', () => {
       expect(screen.getByRole('button', { name: /save/i }).hasAttribute('disabled')).toBe(false),
     );
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
-    await waitFor(() => expect(save).toHaveBeenCalled());
+    await waitFor(() => expect(close).toHaveBeenCalledWith(false));
     expect(savedFlow(save)).toBe('xtls-rprx-vision');
   });
 
   it('does not drop a selected Vision flow while the inbound options momentarily reload', async () => {
     const qc = makeQC();
     const save = vi.fn().mockResolvedValue({ success: true });
+    const close = vi.fn();
     const tree = (inbounds: InboundOption[]) => (
       <ThemeProvider>
         <QueryClientProvider client={qc}>
@@ -79,7 +82,7 @@ describe('ClientFormModal — Vision flow preservation', () => {
             inbounds={inbounds}
             attachedIds={[4]}
             save={save}
-            onOpenChange={() => {}}
+            onOpenChange={close}
           />
         </QueryClientProvider>
       </ThemeProvider>
@@ -94,7 +97,7 @@ describe('ClientFormModal — Vision flow preservation', () => {
       expect(screen.getByRole('button', { name: /save/i }).hasAttribute('disabled')).toBe(false),
     );
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
-    await waitFor(() => expect(save).toHaveBeenCalled());
+    await waitFor(() => expect(close).toHaveBeenCalledWith(false));
     expect(savedFlow(save)).toBe('xtls-rprx-vision');
   });
 });
