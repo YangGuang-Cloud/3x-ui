@@ -1,11 +1,14 @@
-# Production release policy
+# Development and release responsibilities
 
-- Develop and push ordinary changes on `main` or development branches. These actions must never deploy production.
-- `Release` is the case-sensitive production release branch. It was created from known-good production commit `c362c86ef0d033cae2ab13b3e10d18d8e68b381c`.
-- The owner's latest instruction is automatic deployment on a `Release` push, with no manual GitHub approval. Advancing/pushing `Release` is therefore a production deployment action. Ordinary requests to commit/push development changes target `main`, not `Release`.
-- Do not advance or push `Release` until the owner explicitly says to start deployment. Development requests authorize local changes and tests only; report readiness and wait for that instruction.
-- Build and validate before promoting a candidate to `Release`. Report the exact candidate, tests, migration/core changes and expected reconnection. Never merge unfinished development to `Release` merely to test it.
-- The production environment must accept only `Release`. Main/development pushes only build/test. Do not bypass failed candidate checks, production-config preflight or rollback verification.
-- Keep validation copies, databases, logs, listeners and credentials separate from production. Never test an unvalidated release by stopping or replacing the live service.
-- On failure, restore the previous release and SQLite snapshot and verify real proxy traffic after rollback. A running panel or open TCP port alone is insufficient.
+- The owner's latest workflow: the assistant develops code on `main` or a development branch; the owner performs local acceptance, manually merges into `Release`, triggers deployment by pushing it, and verifies production.
+- By default, implement the requested code changes and report what changed. Do not independently run acceptance tests, build/restart the local preview for validation, monitor Actions, deploy, or verify production. Perform these tasks only when the owner specifically requests them. Do not claim unperformed checks passed.
+- Ordinary requests to commit/push development changes target `main`, never `Release`. Do not merge into, advance, or push `Release`, dispatch/re-run deployment workflows, or operate the production server as part of routine development.
+- After delivery, wait for the owner's local acceptance. The owner handles release promotion and production acceptance; do not automatically continue into those stages.
+- If the owner reports a problem and explicitly requests investigation, inspect the relevant evidence within that request's scope. Investigation alone does not authorize a production deployment, rollback, restart, or configuration change.
+
+# Existing deployment safeguards
+
+- `Release` is the case-sensitive production branch. Its push automatically deploys after the workflow checks pass; main/development pushes only build/test.
+- This responsibility change does not disable CI, production preflight, fallback checks, health checks, or the installer's automatic rollback. Preserve these safeguards unless the owner explicitly requests a change.
+- Keep local databases, binaries, logs, listeners and credentials separate from production. Never use the live service as a development test environment.
 - A single-instance cutover interrupts existing connections. Do not promise zero downtime without a separately validated architecture that preserves existing connections.

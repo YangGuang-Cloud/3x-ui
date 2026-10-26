@@ -5,6 +5,10 @@ Target: the managed Ubuntu 20.04 amd64 installation of 3x-ui.
 Push main only builds and tests. Push Release builds/tests and then automatically deploys
 only if all checks pass. There is no manual environment approval, per the owner's final instruction.
 Release promotion is a production action; routine development pushes must target main.
+The owner performs local acceptance, manually merges/pushes Release, and verifies production.
+The assistant develops code only by default; it does not independently validate, promote, deploy,
+monitor deployment runs, or check production. Troubleshooting starts when the owner requests it.
+This division of responsibilities does not disable the automatic checks or rollback described below.
 Build queues are separate per branch. New development builds may cancel older development
 builds, while a Release deployment is never cancelled by a main/development push.
 Manual workflow retries must select Release and provide expected_commit equal to the full SHA.

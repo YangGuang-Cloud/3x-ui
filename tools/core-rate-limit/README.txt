@@ -1,6 +1,7 @@
 Per-account bandwidth extension
 
-User-facing settings: Clients -> speedometer icon -> independent upload/download Mbps.
+User-facing settings: Clients -> edit -> Basics -> independent upload/download Mbps.
+Client information and bandwidth limits share the bottom Save button.
 0 means unlimited. All connections of the same account on this panel share each directional
 bucket, including different local VLESS inbounds. 8 Mbps = 1 MB/s. A 64 KiB burst is allowed.
 Saving a changed limit restarts the local core and reconnects its active sessions.
