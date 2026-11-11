@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popover,
   Progress,
   Row,
   Space,
@@ -42,7 +43,12 @@ export type ProviderStatus = {
   cycle: Cycle | null;
   history: Cycle[];
   clients: { clientId: number; up: number; down: number }[];
-  presence?: { clientId: number; onlineSeconds: number; onlineIPs: number }[];
+  presence?: {
+    clientId: number;
+    onlineSeconds: number;
+    onlineIPs: number;
+    onlineIPList?: string[];
+  }[];
   presenceAvailable?: boolean;
   total: number;
   stale: boolean;
@@ -318,19 +324,39 @@ export function ClientPresenceMetric({
   metric: 'duration' | 'ips';
 }) {
   const row = status?.presence?.find((c) => c.clientId === clientId);
-  if (metric === 'ips')
+  if (metric === 'ips') {
+    if (!status?.presenceAvailable) return <span>—</span>;
+    const count = row?.onlineIPs ?? 0;
+    const addresses = row?.onlineIPList;
+    if (!addresses?.length) return <span>{count}</span>;
+
     return (
-      <Tooltip title="核心当前观测到的来源 IP 数；同一网络的多台设备可能共用一个 IP。">
-        <span>{status?.presenceAvailable ? (row?.onlineIPs ?? 0) : '—'}</span>
-      </Tooltip>
+      <Popover
+        title="在线 IP"
+        trigger="click"
+        content={
+          <ul style={{ margin: 0, paddingInlineStart: 20, maxHeight: 240, overflowY: 'auto' }}>
+            {addresses.map((address) => (
+              <li key={address}>
+                <Typography.Text code>{address}</Typography.Text>
+              </li>
+            ))}
+          </ul>
+        }
+      >
+        <Button type="link" size="small" aria-label={`查看 ${count} 个在线 IP`}>
+          {count}
+        </Button>
+      </Popover>
     );
+  }
   if (!status?.config.enabled || !status.cycle) return <span>—</span>;
   const seconds = row?.onlineSeconds ?? 0;
   const hours = Math.floor(seconds / 3600),
     minutes = Math.floor((seconds % 3600) / 60),
     rest = seconds % 60;
   return (
-    <Tooltip title="搬瓦工本账期累计在线时长，按账号计算，不按 IP 数叠加；按检测结果累计，离线或检测中断时暂停。">
+    <Tooltip title="按账号估算搬瓦工本账期累计在线时长。连续检测到连接或流量活动时累计，离线或检测中断时暂停。">
       <span>
         {hours}小时 {minutes}分 {rest}秒
       </span>

@@ -74,10 +74,12 @@ func NewXrayTrafficJob() *XrayTrafficJob {
 // fallback, scales to 10k–20k+ clients per inbound.
 func (j *XrayTrafficJob) Run() {
 	if !j.xrayService.IsXrayRunning() {
+		_ = service.RecordClientPresence(nil, nil, false)
 		return
 	}
 	traffics, clientTraffics, err := j.xrayService.GetXrayTraffic()
 	if err != nil {
+		_ = service.RecordClientPresence(nil, nil, false)
 		return
 	}
 	needRestart0, clientsDisabled, err := j.accountingRetry.commit(traffics, clientTraffics, j.inboundService.AddTraffic)
@@ -120,7 +122,8 @@ func (j *XrayTrafficJob) Run() {
 	// client moves no bytes between polls (the delta heuristic's blind spot),
 	// while a short-lived connection can close before this poll yet still show
 	// in the delta. Older cores fall back to deltas alone.
-	if onlineUsers, apiMode, ouErr := j.xrayService.GetOnlineUsers(); ouErr != nil {
+	onlineUsers, apiMode, ouErr := j.xrayService.GetOnlineUsers()
+	if ouErr != nil {
 		logger.Debug("get online users from xray api failed:", ouErr)
 	} else if apiMode {
 		idleOnline := make([]string, 0, len(onlineUsers))
@@ -135,6 +138,9 @@ func (j *XrayTrafficJob) Run() {
 		if err := j.inboundService.BumpClientsLastOnline(idleOnline); err != nil {
 			logger.Warning("bump last online for connected clients failed:", err)
 		}
+	}
+	if err := service.RecordClientPresence(activeEmails, onlineUsers, apiMode); err != nil {
+		logger.Warning("[Presence] record online time failed:", err)
 	}
 	// Pair the email signal with the inbound tags that moved bytes this poll.
 	// Xray's user>>>email counter aggregates across every inbound a client is
